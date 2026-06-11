@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -240,9 +239,4 @@ func categoriseError(err error) string {
 	default:
 		return "error: " + msg
 	}
-}
-
-// charCount counts runes for display — referenced in other files.
-func charCount(s string) int {
-	return utf8.RuneCountInString(s)
 }

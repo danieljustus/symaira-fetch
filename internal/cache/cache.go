@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-const maxCacheDirBytes = 256 * 1024 * 1024 // 256 MiB
-
 // Meta is stored alongside each cached body.
 type Meta struct {
 	URL         string            `json:"url"`
