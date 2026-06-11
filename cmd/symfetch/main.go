@@ -15,6 +15,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
+	"github.com/danieljustus/symaira-fetch/internal/robots"
 )
 
 var version = "0.1.0-dev"
@@ -42,6 +43,7 @@ func newRootCmd() *cobra.Command {
 		flagData        string
 		flagConcurrency int
 		flagAllowPriv   bool
+		flagRobots      bool
 	)
 
 	root := &cobra.Command{
@@ -121,6 +123,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				CacheTTL:     cacheTTL,
 				Profile:      profile,
 				Session:      flagSession,
+				Robots:       flagRobots,
+			}
+			if flagRobots {
+				opts.RobotsChecker = robots.NewChecker()
 			}
 
 			ctx := context.Background()
@@ -175,6 +181,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().StringVar(&flagData, "data", "", "Request body data")
 	root.Flags().IntVar(&flagConcurrency, "concurrency", 4, "Parallel fetch workers for multiple URLs")
 	root.Flags().BoolVar(&flagAllowPriv, "allow-private", false, "Allow fetching private/loopback addresses")
+	root.Flags().BoolVar(&flagRobots, "robots", false, "Check robots.txt before fetching")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())

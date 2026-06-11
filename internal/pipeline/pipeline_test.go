@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
@@ -267,6 +268,48 @@ func TestPipelineHTTP404(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "404") {
 		t.Errorf("expected 404 in error, got: %v", err)
+	}
+}
+
+func TestPipeline_ISO8859_1(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "iso_8859_1.html"))
+	if err != nil {
+		t.Fatalf("testdata/iso_8859_1.html: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=iso-8859-1")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format:       pipeline.FormatMarkdown,
+		MaxChars:     20000,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Output must be valid UTF-8
+	if !utf8.ValidString(res.Output) {
+		t.Errorf("output is not valid UTF-8:\n%s", res.Output[:min(500, len(res.Output))])
+	}
+
+	// Verify expected characters survived the conversion (not mojibake)
+	expected := []string{"Universität", "schöne", "Freude", "Straße", "Vorlesung", "Molière"}
+	for _, s := range expected {
+		if !strings.Contains(res.Output, s) {
+			t.Errorf("expected %q in output, got:\n%s", s, res.Output[:min(500, len(res.Output))])
+		}
+	}
+
+	if res.Meta.Title == "" {
+		t.Error("expected non-empty title")
 	}
 }
 

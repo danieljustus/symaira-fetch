@@ -14,6 +14,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/render"
+	"github.com/danieljustus/symaira-fetch/internal/robots"
 	"github.com/danieljustus/symaira-fetch/internal/semantic"
 )
 
@@ -55,6 +56,9 @@ type Options struct {
 	CacheTTL time.Duration
 	Profile  string
 	Session  string
+
+	Robots        bool
+	RobotsChecker *robots.Checker
 }
 
 func (o *Options) setDefaults() {
@@ -110,7 +114,17 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
-	// 1. Fetch
+	// 1. Robots check
+	if o.Robots && o.RobotsChecker != nil {
+		allowed, err := o.RobotsChecker.Check(ctx, "symfetch", rawURL)
+		if err != nil {
+			slog.Debug("robots check error", "url", rawURL, "error", err)
+		} else if !allowed {
+			return nil, fmt.Errorf("robots: disallowed by robots.txt: %s", rawURL)
+		}
+	}
+
+	// 2. Fetch
 	resp, err := c.Fetch(ctx, fetch.Request{
 		URL:          rawURL,
 		AllowPrivate: o.AllowPrivate,
@@ -124,22 +138,22 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		return nil, fmt.Errorf("http_%d: server returned %d for %s", resp.StatusCode, resp.StatusCode, rawURL)
 	}
 
-	// 2. Materialize (parse DOM)
+	// 3. Materialize (parse DOM)
 	tree, err := eng.Materialize(ctx, resp)
 	if err != nil {
 		return nil, fmt.Errorf("materialize: %w", err)
 	}
 
-	// 3. Extract data islands BEFORE filtering (islands are in <script> tags)
+	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
 	rawIslands := semantic.ExtractIslands(tree.Root, o.MaxIslandBytes)
 
-	// 4. Filter DOM
+	// 5. Filter DOM
 	dom.Filter(tree.Root)
 
-	// 5. Score and pick best block
+	// 6. Score and pick best block
 	bestNode := semantic.BestBlock(tree.Root, o.CharThreshold)
 
-	// 6. Build agentdom
+	// 7. Build agentdom
 	doc := &agentdom.Document{
 		URL:      rawURL,
 		FinalURL: resp.FinalURL,
@@ -158,7 +172,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		})
 	}
 
-	// 7. Render
+	// 8. Render
 	var output string
 	switch o.Format {
 	case FormatJSON:
