@@ -82,10 +82,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			if cmd.Flags().Changed("max-chars") {
 				maxChars = flagMaxChars
 			}
-			_ = flagCacheTTL
-			_ = flagNoCache
-			_ = flagSession
-			_ = flagConcurrency
+
+			noCache := flagNoCache
+			cacheTTL, err := time.ParseDuration(flagCacheTTL)
+			if err != nil {
+				return fmt.Errorf("invalid cache-ttl: %w", err)
+			}
 
 			timeoutSec := cfg.HTTP.TimeoutSeconds
 			if cmd.Flags().Changed("timeout") {
@@ -114,6 +116,9 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				Format:       pipeline.ParseFormat(format),
 				MaxChars:     maxChars,
 				IncludeLinks: flagLinks,
+				NoCache:      noCache,
+				CacheTTL:     cacheTTL,
+				Profile:      profile,
 			}
 
 			ctx := context.Background()
