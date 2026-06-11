@@ -48,13 +48,13 @@ type Options struct {
 	IncludeLinks   bool
 	CharThreshold  int  // minimum chars for content scoring; below this triggers retry
 	MaxIslandBytes int  // max size of a single data island
-	AllowPrivate   bool // allow fetching RFC1918/loopback addresses (test use only)
+	AllowPrivate   bool
 
-	// Cache settings
-	NoCache  bool          // disable response caching
-	CacheDir string        // cache directory; empty = default (~/.cache/symfetch)
-	CacheTTL time.Duration // cache TTL; 0 = default (24h)
-	Profile  string        // browser profile for cache key (e.g. "chrome", "honest")
+	NoCache  bool
+	CacheDir string
+	CacheTTL time.Duration
+	Profile  string
+	Session  string
 }
 
 func (o *Options) setDefaults() {
@@ -111,7 +111,11 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	}
 
 	// 1. Fetch
-	resp, err := c.Fetch(ctx, fetch.Request{URL: rawURL, AllowPrivate: o.AllowPrivate})
+	resp, err := c.Fetch(ctx, fetch.Request{
+		URL:          rawURL,
+		AllowPrivate: o.AllowPrivate,
+		Session:      o.Session,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}

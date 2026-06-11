@@ -119,6 +119,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				NoCache:      noCache,
 				CacheTTL:     cacheTTL,
 				Profile:      profile,
+				Session:      flagSession,
 			}
 
 			ctx := context.Background()
