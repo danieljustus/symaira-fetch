@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
@@ -133,6 +134,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				return runMultiJSON(ctx, client, eng, args, opts)
 			}
 
+			if len(args) > 1 && flagConcurrency > 1 {
+				return runBatch(ctx, client, eng, args, opts, flagConcurrency)
+			}
+
 			for i, rawURL := range args {
 				if i > 0 {
 					fmt.Print("\n---\n\n")
@@ -220,6 +225,31 @@ func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine,
 		return err
 	}
 	fmt.Println(string(data))
+	return nil
+}
+
+func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options, concurrency int) error {
+	items := make([]batch.Item, len(urls))
+	for i, u := range urls {
+		items[i] = batch.Item{URL: u}
+	}
+
+	pool := batch.Pool{Workers: concurrency, PerHost: 2}
+	results := pool.RunBatch(ctx, client, eng, items, opts)
+
+	for i, r := range results {
+		if i > 0 {
+			fmt.Print("\n---\n\n")
+		}
+		if r.OK {
+			fmt.Print(r.Output)
+			if !strings.HasSuffix(r.Output, "\n") {
+				fmt.Println()
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "error fetching %s: %s\n", r.URL, r.Error)
+		}
+	}
 	return nil
 }
 
