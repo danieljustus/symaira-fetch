@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/render"
@@ -45,7 +48,13 @@ type Options struct {
 	IncludeLinks   bool
 	CharThreshold  int  // minimum chars for content scoring; below this triggers retry
 	MaxIslandBytes int  // max size of a single data island
-	AllowPrivate   bool // allow fetching RFC1918/loopback addresses (test use only)
+	AllowPrivate   bool
+
+	NoCache  bool
+	CacheDir string
+	CacheTTL time.Duration
+	Profile  string
+	Session  string
 }
 
 func (o *Options) setDefaults() {
@@ -72,8 +81,41 @@ type Result struct {
 func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Options) (*Result, error) {
 	o.setDefaults()
 
+	var cacher *cache.Cache
+	if !o.NoCache {
+		dir := o.CacheDir
+		if dir == "" {
+			dir = cache.DefaultDir()
+		}
+		ttl := o.CacheTTL
+		if ttl <= 0 {
+			ttl = 24 * time.Hour
+		}
+		cacher = cache.New(dir, ttl)
+
+		profile := o.Profile
+		if profile == "" {
+			profile = "chrome"
+		}
+		if body, meta, ok := cacher.Get(rawURL, profile); ok {
+			slog.Debug("cache hit", "url", rawURL)
+			return &Result{
+				Output: string(body),
+				Meta: agentdom.Meta{
+					FinalURL:   meta.FinalURL,
+					StatusCode: meta.StatusCode,
+					Protocol:   meta.Protocol,
+				},
+			}, nil
+		}
+	}
+
 	// 1. Fetch
-	resp, err := c.Fetch(ctx, fetch.Request{URL: rawURL, AllowPrivate: o.AllowPrivate})
+	resp, err := c.Fetch(ctx, fetch.Request{
+		URL:          rawURL,
+		AllowPrivate: o.AllowPrivate,
+		Session:      o.Session,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
@@ -147,6 +189,23 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		EstTokens:  charCount / 4,
 		Truncated:  truncated,
 		Protocol:   resp.Protocol,
+	}
+
+	if cacher != nil {
+		profile := o.Profile
+		if profile == "" {
+			profile = "chrome"
+		}
+		if err := cacher.Put(rawURL, profile, []byte(output), cache.Meta{
+			URL:         rawURL,
+			FinalURL:    resp.FinalURL,
+			StatusCode:  resp.StatusCode,
+			ContentType: resp.ContentType,
+			Protocol:    resp.Protocol,
+			Headers:     resp.Headers,
+		}); err != nil {
+			slog.Debug("cache put failed", "url", rawURL, "error", err)
+		}
 	}
 
 	return &Result{Doc: doc, Output: output, Meta: meta}, nil

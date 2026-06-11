@@ -1,9 +1,12 @@
 package fetch
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -184,5 +187,159 @@ func TestCookiePersistence(t *testing.T) {
 	_, err = c.Fetch(context.Background(), Request{URL: srv.URL + "/set", AllowPrivate: true})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// captureRequestHeaders starts a raw TCP server that records the on-wire
+// header order from a single HTTP/1.1 request, then responds 200 OK.
+func captureRequestHeaders(t *testing.T, doReq func(serverURL string) error) []string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		headers []string
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			ch <- result{}
+			return
+		}
+		defer conn.Close()
+
+		br := bufio.NewReader(conn)
+		var headers []string
+		lineNum := 0
+		for {
+			line, readErr := br.ReadString('\n')
+			line = strings.TrimRight(line, "\r\n")
+
+			if lineNum == 0 {
+				// Skip the request line (e.g. "GET / HTTP/1.1")
+				lineNum++
+				if readErr != nil {
+					break
+				}
+				continue
+			}
+			lineNum++
+
+			if line == "" {
+				break // end of headers
+			}
+			if idx := strings.Index(line, ":"); idx > 0 {
+				headers = append(headers, strings.TrimSpace(line[:idx]))
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		// Minimal valid HTTP/1.1 response
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+		ch <- result{headers}
+	}()
+
+	serverURL := "http://" + ln.Addr().String()
+	reqErr := doReq(serverURL)
+	ln.Close()
+
+	if reqErr != nil {
+		t.Fatal(reqErr)
+	}
+
+	r := <-ch
+	return r.headers
+}
+
+func headerIndex(headers []string, name string) int {
+	for i, h := range headers {
+		if h == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestAzureTLSHeaderOrder(t *testing.T) {
+	// Capture header order from azuretls Chrome-profile client
+	chromeHeaders := captureRequestHeaders(t, func(serverURL string) error {
+		c, err := New(ProfileChrome, WithTimeout(5))
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		_, err = c.Fetch(context.Background(), Request{
+			URL:          serverURL,
+			AllowPrivate: true,
+		})
+		return err
+	})
+
+	// Capture header order from honest (stdlib net/http) client
+	honestHeaders := captureRequestHeaders(t, func(serverURL string) error {
+		c, err := New(ProfileHonest, WithTimeout(5))
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		_, err = c.Fetch(context.Background(), Request{
+			URL:          serverURL,
+			AllowPrivate: true,
+		})
+		return err
+	})
+
+	if len(chromeHeaders) == 0 {
+		t.Fatal("azuretls Chrome client sent no headers")
+	}
+	if len(honestHeaders) == 0 {
+		t.Fatal("honest client sent no headers")
+	}
+
+	t.Logf("azuretls Chrome header order: %v", chromeHeaders)
+	t.Logf("honest client header order:   %v", honestHeaders)
+
+	// The two clients MUST send headers in different orders.
+	// Header ordering is a key fingerprinting signal; if they match,
+	// the browser impersonation is not preserving Chrome's order.
+	if reflect.DeepEqual(chromeHeaders, honestHeaders) {
+		t.Fatal("azuretls and honest client sent headers in identical order; " +
+			"browser impersonation is not preserving distinct header order")
+	}
+
+	// Go's net/http writes Host first.
+	if honestHeaders[0] != "Host" {
+		t.Errorf("honest client should send Host first, got: %v", honestHeaders)
+	}
+
+	// azuretls Chrome preset does NOT put Host first — it follows Chrome's internal ordering.
+	if len(chromeHeaders) > 0 && chromeHeaders[0] == "Host" {
+		t.Errorf("azuretls should not send Host first (Chrome-like order), got: %v", chromeHeaders)
+	}
+
+	// Both clients must include Host and User-Agent.
+	for _, h := range []string{"Host", "User-Agent"} {
+		if headerIndex(chromeHeaders, h) < 0 {
+			t.Errorf("azuretls missing %s header in: %v", h, chromeHeaders)
+		}
+		if headerIndex(honestHeaders, h) < 0 {
+			t.Errorf("honest client missing %s header in: %v", h, honestHeaders)
+		}
+	}
+
+	// The absolute positions of common headers must differ between clients.
+	for _, h := range []string{"Host", "User-Agent"} {
+		ci := headerIndex(chromeHeaders, h)
+		hi := headerIndex(honestHeaders, h)
+		if ci >= 0 && hi >= 0 && ci == hi {
+			t.Errorf("header %q at same position %d in both clients", h, ci)
+		}
 	}
 }

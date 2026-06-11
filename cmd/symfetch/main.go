@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
@@ -82,10 +83,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			if cmd.Flags().Changed("max-chars") {
 				maxChars = flagMaxChars
 			}
-			_ = flagCacheTTL
-			_ = flagNoCache
-			_ = flagSession
-			_ = flagConcurrency
+
+			noCache := flagNoCache
+			cacheTTL, err := time.ParseDuration(flagCacheTTL)
+			if err != nil {
+				return fmt.Errorf("invalid cache-ttl: %w", err)
+			}
 
 			timeoutSec := cfg.HTTP.TimeoutSeconds
 			if cmd.Flags().Changed("timeout") {
@@ -114,6 +117,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				Format:       pipeline.ParseFormat(format),
 				MaxChars:     maxChars,
 				IncludeLinks: flagLinks,
+				NoCache:      noCache,
+				CacheTTL:     cacheTTL,
+				Profile:      profile,
+				Session:      flagSession,
 			}
 
 			ctx := context.Background()
@@ -125,6 +132,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 
 			if opts.Format == pipeline.FormatJSON && len(args) > 1 {
 				return runMultiJSON(ctx, client, eng, args, opts)
+			}
+
+			if len(args) > 1 && flagConcurrency > 1 {
+				return runBatch(ctx, client, eng, args, opts, flagConcurrency)
 			}
 
 			for i, rawURL := range args {
@@ -214,6 +225,31 @@ func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine,
 		return err
 	}
 	fmt.Println(string(data))
+	return nil
+}
+
+func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options, concurrency int) error {
+	items := make([]batch.Item, len(urls))
+	for i, u := range urls {
+		items[i] = batch.Item{URL: u}
+	}
+
+	pool := batch.Pool{Workers: concurrency, PerHost: 2}
+	results := pool.RunBatch(ctx, client, eng, items, opts)
+
+	for i, r := range results {
+		if i > 0 {
+			fmt.Print("\n---\n\n")
+		}
+		if r.OK {
+			fmt.Print(r.Output)
+			if !strings.HasSuffix(r.Output, "\n") {
+				fmt.Println()
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "error fetching %s: %s\n", r.URL, r.Error)
+		}
+	}
 	return nil
 }
 
