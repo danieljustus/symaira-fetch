@@ -1,0 +1,32 @@
+Rolle: Principal AI Infrastructure Architect & Technical Researcher.
+
+Kontext: 
+Wir entwickeln ein neues, hochgradig optimiertes Tool für das "Symaira"-Ökosystem (https://symaira.com), eine Suite für fortgeschrittene Human-AI-Kollaboration. Das Ziel ist die Konzeption eines "AI-Native Browsers" (Arbeitstitel: Symaira Browse/Fetch Engine). Dieser Browser ist NICHT für Menschen gedacht und soll keine klassischen Headless-Frameworks wie Playwright, Puppeteer oder Selenium nutzen, da diese durch das vollständige Rendering (Blink/Chromium-Engine) zu speicherintensiv und zu langsam sind. 
+
+Die technologische Orientierung geht in Richtung von Projekten wie Lightpanda (ein in Go geschriebener, extrem leichtgewichtiger Browser mit nativer JS-Ausführung, ohne den Overhead eines vollen Browsers). Das Tool soll KI-Agenten (wie Hermes, OpenClaw etc.) ermöglichen, das Web mit maximaler Geschwindigkeit zu durchsuchen, JS-lastige Seiten (SPAs) zu exekutieren und URLs blitzschnell semantisch zu analysieren.
+
+Aufgabe:
+Führe eine tiefgehende, wissenschaftliche und architektonische Recherche durch, wie ein solcher AI-Native Browser von Grund auf aufgebaut sein müsste. Liefere eine detaillierte technische Analyse und ein Architekturdokument, das folgende Kernbereiche abdeckt:
+
+1. Architektur der Execution Engine:
+- Wie lässt sich eine extrem schlanke Browser-Architektur (z. B. in Go oder Rust) realisieren, die HTTP-Requests verarbeitet, den DOM aufbaut und JavaScript ausführt, ohne visuelles Rendering (No-Layout, No-Painting, No-GPU)?
+- Welche JS-Engines eignen sich für diesen Zweck abseits von der schweren V8 (z. B. Goja, QuickJS) und wie performen sie im Kontext von modernen Web-Apps?
+- Wie wird das Session- und Cookie-Management effizient isoliert und parallelisiert?
+
+2. LLM- & Token-Optimierung (Der "Semantic DOM"):
+- Wie muss der rohe HTML/JS-Zustand direkt auf Browser-Ebene transformiert werden, damit er für LLMs maximal token-effizient und lesbar ist (z. B. automatisches Tree-Shaking von CSS/redundanten Tags, Transformation in minimalistisches Markdown oder strukturiertes JSON)?
+- Wie kann die Engine Priorisierungs-Heuristiken implementieren (z. B. Hauptinhalt vs. Navigation/Footer direkt beim Parsen trennen)?
+
+3. Agenten-Interaktions-Schnittstelle (Primitives):
+- Wie sieht das optimale API-Design für Agenten aus? Welche Primitives (z. B. `click(selector)`, `type(selector, text)`, `scroll_to()`) müssen bereitgestellt werden, wenn es keine visuelle Koordinaten-Ebene gibt?
+- Wie wird das Event-Handling im DOM an den Agenten zurückgemeldet, wenn Aktionen asynchrone JS-Änderungen triggern?
+
+4. Performance- und Effizienz-Benchmarks:
+- Welche Latenz- und Memory-Vorteile bietet dieser Ansatz theoretisch und praktisch im Vergleich zu Chromium-basierten Headless-Systemen?
+- Wie lässt sich das System für massives, paralleles Scraping und URL-Analysen (Concurrency-Modell) optimieren?
+
+5. Resilience & Antidetect (Optional, aber wichtig):
+- Wie geht ein solcher minimalistischer Browser mit modernen Bot-Detection-Systemen (Cloudflare, Akamai etc.) um, wenn er keinen Standard-Chromium-Fingerprint liefert? Welche Strategien zur Emulation von Standard-Verhalten auf Protokollebene sind notwendig?
+
+Ausgabeformat:
+Erstelle einen umfassenden, strukturierten Forschungsbericht mit klaren technischen Spezifikationen, Architekturskizzen (in Textform/Mermaid, falls sinnvoll) und einer abschließenden Empfehlung für den Tech-Stack (Sprache, JS-Engine, Netzwerk-Bibliotheken) für das Symaira-Projekt.

@@ -1,0 +1,32 @@
+graph TD
+    subgraph "Symaira AI-Native Browser Architecture"
+        Agent[AI Agent / Hermes / OpenClaw]
+        API[Agent Interaction Interface / Primitives]
+        
+        subgraph "Execution Engine (Rust/Zig)"
+            HTTP[HTTP Layer / TLS-Fingerprinting Emulation]
+            Parser[HTML Parser / Semantic DOM Builder]
+            DOM[Semantic DOM / No-Layout Tree]
+            JS[JS Engine / QuickJS / Goja]
+        end
+        
+        subgraph "Semantic Optimization Layer"
+            Shaking[Tree-Shaking / Tag Filtering]
+            Heuristics[Prioritization Heuristics]
+            Transform[Markdown/JSON Transformer]
+        end
+        
+        Web[Target Website / SPA]
+        
+        Agent <--> API
+        API <--> DOM
+        API <--> JS
+        DOM <--> Parser
+        Parser <--> HTTP
+        HTTP <--> Web
+        JS <--> DOM
+        DOM --> Shaking
+        Shaking --> Heuristics
+        Heuristics --> Transform
+        Transform --> Agent
+    end

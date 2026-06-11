@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant A as AI Agent
+    participant B as AI-Native Browser
+    participant W as Website
+
+    A->>B: navigate(url)
+    B->>W: HTTP Request (TLS Emulated)
+    W-->>B: HTML/JS Content
+    B->>B: Build Semantic DOM
+    B->>B: Execute JS (QuickJS)
+    B->>B: Apply Heuristics & Tree-Shaking
+    B->>A: Return Semantic Markdown + Element Refs (@e1, @e2)
+    
+    A->>B: click(@e1)
+    B->>B: Trigger JS Event
+    B->>W: (Optional) Async Network Request
+    W-->>B: Response
+    B->>B: Update Semantic DOM
+    B->>A: Return Mutation Diff / Updated State
