@@ -179,38 +179,23 @@ func isAllowed(groups []group, userAgent, path string) bool {
 	ua := strings.ToLower(userAgent)
 
 	var bestGroup *group
-	bestSpecificity := -1
+	bestLen := -1
 
 	for i := range groups {
 		g := &groups[i]
 		for _, agent := range g.agents {
+			matched := false
+			specificity := 0
 			if agent == "*" {
-				if bestSpecificity < 0 {
-					bestGroup = g
-					bestSpecificity = 0
-				}
+				matched = true
+				specificity = 0
 			} else if strings.Contains(ua, agent) {
+				matched = true
+				specificity = len(agent)
+			}
+			if matched && specificity > bestLen {
 				bestGroup = g
-				bestSpecificity = 1
-				break
-			}
-		}
-		if bestSpecificity == 1 {
-			break
-		}
-	}
-
-	if bestGroup == nil {
-		for i := range groups {
-			g := &groups[i]
-			for _, agent := range g.agents {
-				if agent == "*" {
-					bestGroup = g
-					break
-				}
-			}
-			if bestGroup != nil {
-				break
+				bestLen = specificity
 			}
 		}
 	}
@@ -219,16 +204,16 @@ func isAllowed(groups []group, userAgent, path string) bool {
 		return true
 	}
 
-	bestLen := -1
+	bestRuleLen := -1
 	allowed := true
 
 	for _, r := range bestGroup.rules {
 		if matchPath(r.path, path) {
 			ruleLen := len(r.path)
-			if ruleLen > bestLen {
-				bestLen = ruleLen
+			if ruleLen > bestRuleLen {
+				bestRuleLen = ruleLen
 				allowed = r.allowed
-			} else if ruleLen == bestLen {
+			} else if ruleLen == bestRuleLen {
 				if r.allowed {
 					allowed = true
 				}

@@ -1,10 +1,12 @@
 package fetch
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ErrBlockedPrivate is returned when a request targets a private/loopback
@@ -23,6 +25,7 @@ func (e *ErrBlockedPrivate) Error() string {
 //   - loopback (127.0.0.0/8, ::1)
 //   - link-local (169.254.0.0/16, fe80::/10)
 //   - RFC-1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+//   - IPv4-mapped IPv6 (::ffff:0:0/96)
 func checkSSRF(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -39,9 +42,12 @@ func checkSSRF(rawURL string) error {
 		return fmt.Errorf("invalid URL: no host")
 	}
 
-	ips, err := net.LookupHost(host)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resolver := &net.Resolver{}
+	ips, err := resolver.LookupHost(ctx, host)
 	if err != nil {
-		// Let the actual request fail with a DNS error; don't pre-block.
 		return nil
 	}
 
@@ -67,7 +73,7 @@ var privateRanges = func() []*net.IPNet {
 		"172.16.0.0/12",
 		"192.168.0.0/16",
 		"fc00::/7",
-		"100.64.0.0/10", // Carrier-grade NAT
+		"100.64.0.0/10",
 	}
 	var nets []*net.IPNet
 	for _, cidr := range cidrs {
@@ -80,6 +86,9 @@ var privateRanges = func() []*net.IPNet {
 }()
 
 func isPrivate(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
 	for _, n := range privateRanges {
 		if n.Contains(ip) {
 			return true
