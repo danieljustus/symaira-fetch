@@ -148,7 +148,7 @@ func TestSSRFGuard(t *testing.T) {
 		{"http://10.0.0.1/", true},
 		{"http://172.16.0.1/", true},
 		{"ftp://example.com/", true},
-		{"https://example.com/", false}, // DNS lookup will succeed in tests or fail gracefully
+		{"https://example.com/", false},
 	}
 
 	for _, tt := range tests {
@@ -156,6 +156,30 @@ func TestSSRFGuard(t *testing.T) {
 		isBlocked := err != nil
 		if isBlocked != tt.blocked {
 			t.Errorf("checkSSRF(%q): blocked=%v, want %v (err=%v)", tt.url, isBlocked, tt.blocked, err)
+		}
+	}
+}
+
+func TestSSRFGuardIPv4MappedIPv6(t *testing.T) {
+	tests := []struct {
+		ip      string
+		blocked bool
+	}{
+		{"::ffff:127.0.0.1", true},
+		{"::ffff:10.0.0.1", true},
+		{"::ffff:192.168.1.1", true},
+		{"::ffff:172.16.0.1", true},
+		{"::ffff:8.8.8.8", false},
+	}
+
+	for _, tt := range tests {
+		ip := net.ParseIP(tt.ip)
+		if ip == nil {
+			t.Fatalf("failed to parse IP: %s", tt.ip)
+		}
+		got := isPrivate(ip)
+		if got != tt.blocked {
+			t.Errorf("isPrivate(%s): %v, want %v", tt.ip, got, tt.blocked)
 		}
 	}
 }
