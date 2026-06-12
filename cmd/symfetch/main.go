@@ -341,7 +341,7 @@ func newConfigCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "config already exists at %s\n", path)
 				return nil
 			}
-			if err := os.WriteFile(path, []byte(config.DefaultConfigTOML()), 0644); err != nil {
+			if err := os.WriteFile(path, []byte(config.DefaultConfigTOML()), 0600); err != nil {
 				return err
 			}
 			fmt.Printf("Config written to %s\n", path)
