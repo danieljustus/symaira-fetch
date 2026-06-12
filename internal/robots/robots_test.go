@@ -377,3 +377,22 @@ Disallow: /`
 		t.Error("root path with Disallow: / should be disallowed")
 	}
 }
+
+func TestIsAllowedMostSpecificAgentWins(t *testing.T) {
+	groups := parse(`
+User-agent: *
+Disallow: /private/
+
+User-agent: Googlebot
+Allow: /private/docs/
+`)
+	if !isAllowed(groups, "Googlebot", "/private/docs/") {
+		t.Error("Googlebot should be allowed on /private/docs/ via most-specific match")
+	}
+	if !isAllowed(groups, "Googlebot", "/private/other") {
+		t.Error("Googlebot should be allowed on /private/other (no rule in most-specific group)")
+	}
+	if isAllowed(groups, "OtherBot", "/private/docs/") {
+		t.Error("OtherBot should be disallowed on /private/docs/ via * rule")
+	}
+}
