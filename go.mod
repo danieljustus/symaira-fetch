@@ -3,7 +3,6 @@ module github.com/danieljustus/symaira-fetch
 go 1.26.4
 
 require (
-	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Noooste/azuretls-client v1.13.2
 	github.com/danieljustus/symaira-corekit v0.1.0
@@ -13,9 +12,8 @@ require (
 	golang.org/x/text v0.38.0
 )
 
-replace github.com/danieljustus/symaira-corekit => ../symaira-corekit
-
 require (
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/Noooste/fhttp v1.0.15 // indirect
 	github.com/Noooste/go-socks4 v0.0.2 // indirect
