@@ -3,6 +3,7 @@ package cache_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -84,7 +85,6 @@ func TestCacheAtomicWrite(t *testing.T) {
 	c := cache.New(dir, 15*time.Minute)
 	c.Put("https://example.com", "chrome", "markdown", []byte("data"), cache.Meta{StatusCode: 200})
 
-	// No .tmp files should remain after a successful Put
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -124,4 +124,21 @@ func TestCacheDifferentFormatsDontCollide(t *testing.T) {
 	if string(b3) != "text-body" {
 		t.Errorf("expected text-body, got %q", b3)
 	}
+}
+
+func TestCacheConcurrentAccess(t *testing.T) {
+	c := newTempCache(t, 15*time.Minute)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			url := "https://example.com/page" + string(rune('A'+i%26))
+			body := []byte("body")
+			meta := cache.Meta{StatusCode: 200}
+			c.Put(url, "chrome", "markdown", body, meta)
+			c.Get(url, "chrome", "markdown")
+		}(i)
+	}
+	wg.Wait()
 }

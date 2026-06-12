@@ -4,10 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"time"
 )
+
+const defaultMaxSize = 100 * 1024 * 1024
 
 // Meta is stored alongside each cached body.
 type Meta struct {
@@ -23,13 +28,15 @@ type Meta struct {
 
 // Cache is a flat-file, content-addressed response cache.
 type Cache struct {
-	dir string
-	ttl time.Duration
+	dir     string
+	ttl     time.Duration
+	maxSize int64
+	mu      sync.RWMutex
 }
 
 // New creates a Cache rooted at dir with the given TTL.
 func New(dir string, ttl time.Duration) *Cache {
-	return &Cache{dir: dir, ttl: ttl}
+	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize}
 }
 
 // DefaultDir returns ~/.cache/symfetch.
@@ -61,6 +68,9 @@ func (c *Cache) metaPath(k string) string {
 
 // Get returns cached body+meta if present and not expired.
 func (c *Cache) Get(url, profile, format string) ([]byte, *Meta, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	k := c.key(url, profile, format)
 	metaData, err := os.ReadFile(c.metaPath(k))
 	if err != nil {
@@ -86,6 +96,9 @@ func (c *Cache) Get(url, profile, format string) ([]byte, *Meta, bool) {
 
 // Put stores the body and meta in the cache.
 func (c *Cache) Put(url, profile, format string, body []byte, meta Meta) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	k := c.key(url, profile, format)
 	dir := filepath.Join(c.dir, k[:2])
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -100,7 +113,6 @@ func (c *Cache) Put(url, profile, format string, body []byte, meta Meta) error {
 		return err
 	}
 
-	// Write body
 	bodyTmp := c.bodyPath(k) + ".tmp"
 	if err := os.WriteFile(bodyTmp, body, 0600); err != nil {
 		return err
@@ -109,10 +121,92 @@ func (c *Cache) Put(url, profile, format string, body []byte, meta Meta) error {
 		return err
 	}
 
-	// Write meta
 	metaTmp := c.metaPath(k) + ".tmp"
 	if err := os.WriteFile(metaTmp, metaData, 0600); err != nil {
 		return err
 	}
-	return os.Rename(metaTmp, c.metaPath(k))
+	if err := os.Rename(metaTmp, c.metaPath(k)); err != nil {
+		return err
+	}
+
+	c.evictIfOverSize()
+	return nil
+}
+
+type cacheEntryInfo struct {
+	key      string
+	storedAt time.Time
+	size     int64
+}
+
+func (c *Cache) evictIfOverSize() {
+	totalSize, entries := c.scanCache()
+	if totalSize <= c.maxSize {
+		return
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].storedAt.Before(entries[j].storedAt)
+	})
+
+	for _, entry := range entries {
+		if totalSize <= c.maxSize*8/10 {
+			break
+		}
+		bodyPath := c.bodyPath(entry.key)
+		metaPath := c.metaPath(entry.key)
+		os.Remove(bodyPath)
+		os.Remove(metaPath)
+		totalSize -= entry.size
+		slog.Debug("evicted cache entry", "key", entry.key)
+	}
+}
+
+func (c *Cache) scanCache() (int64, []cacheEntryInfo) {
+	var totalSize int64
+	var entries []cacheEntryInfo
+
+	filepath.WalkDir(c.dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".meta.json" {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		var m Meta
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil
+		}
+
+		key := filepath.Base(path)
+		key = key[:len(key)-len(".meta.json")]
+
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		metaSize := info.Size()
+
+		bodyPath := c.bodyPath(key)
+		bodyInfo, err := os.Stat(bodyPath)
+		bodySize := int64(0)
+		if err == nil {
+			bodySize = bodyInfo.Size()
+		}
+
+		totalSize += metaSize + bodySize
+		entries = append(entries, cacheEntryInfo{
+			key:      key,
+			storedAt: m.StoredAt,
+			size:     metaSize + bodySize,
+		})
+		return nil
+	})
+
+	return totalSize, entries
 }
