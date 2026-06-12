@@ -23,9 +23,9 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestLoadEnvOverride(t *testing.T) {
-	resetCache()
-	t.Setenv("SYMFETCH_PROXY", "http://proxy:8080")
-	t.Setenv("SYMFETCH_PROFILE", "firefox")
+	loader.ResetCache()
+	t.Setenv("SYMFETCH_HTTP_PROXY", "http://proxy:8080")
+	t.Setenv("SYMFETCH_HTTP_PROFILE", "firefox")
 
 	cfg, err := Load()
 	if err != nil {
@@ -37,12 +37,12 @@ func TestLoadEnvOverride(t *testing.T) {
 	if cfg.HTTP.Profile != "firefox" {
 		t.Errorf("expected profile firefox from env, got %q", cfg.HTTP.Profile)
 	}
-	resetCache()
+	loader.ResetCache()
 }
 
 func TestMergeFile(t *testing.T) {
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.toml")
+	cfgPath := filepath.Join(tmp, ".symfetch.toml")
 	content := `
 [http]
 profile = "honest"
@@ -52,8 +52,14 @@ timeout_seconds = 60
 		t.Fatal(err)
 	}
 
-	cfg := Defaults()
-	if err := mergeFile(cfg, cfgPath); err != nil {
+	loader.ResetCache()
+
+	orig, _ := os.Getwd()
+	os.Chdir(tmp)
+	defer os.Chdir(orig)
+
+	cfg, err := Load()
+	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.HTTP.Profile != "honest" {
@@ -62,15 +68,24 @@ timeout_seconds = 60
 	if cfg.HTTP.TimeoutSeconds != 60 {
 		t.Errorf("expected timeout 60, got %d", cfg.HTTP.TimeoutSeconds)
 	}
-	// Defaults should be preserved
 	if cfg.HTTP.MaxBodyMB != 10 {
 		t.Errorf("expected max_body_mb default 10, got %d", cfg.HTTP.MaxBodyMB)
 	}
+	loader.ResetCache()
 }
 
 func TestMergeFileMissing(t *testing.T) {
-	cfg := Defaults()
-	if err := mergeFile(cfg, "/nonexistent/path/config.toml"); err != nil {
+	loader.ResetCache()
+	orig, _ := os.Getwd()
+	os.Chdir("/nonexistent/path")
+	defer os.Chdir(orig)
+
+	cfg, err := Load()
+	if err != nil {
 		t.Errorf("expected no error for missing file, got %v", err)
 	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	loader.ResetCache()
 }

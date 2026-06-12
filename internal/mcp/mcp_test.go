@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,18 +15,57 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
 
-// runRPC sends a sequence of JSON-RPC requests and returns the output lines.
-func runRPC(t *testing.T, requests []map[string]interface{}) []string {
+func writeFrame(buf *bytes.Buffer, obj interface{}) {
+	data, err := json.Marshal(obj)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprintf(buf, "Content-Length: %d\r\n\r\n%s", len(data), data)
+}
+
+func readFrames(t *testing.T, data string) []map[string]interface{} {
+	t.Helper()
+	var frames []map[string]interface{}
+	rest := data
+	for {
+		idx := strings.Index(rest, "Content-Length:")
+		if idx == -1 {
+			break
+		}
+		rest = rest[idx:]
+		headerEnd := strings.Index(rest, "\r\n\r\n")
+		if headerEnd == -1 {
+			break
+		}
+		header := rest[:headerEnd]
+		parts := strings.SplitN(header, ":", 2)
+		if len(parts) != 2 {
+			break
+		}
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &n); err != nil {
+			break
+		}
+		bodyStart := headerEnd + 4
+		if bodyStart+n > len(rest) {
+			break
+		}
+		body := rest[bodyStart : bodyStart+n]
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &obj); err == nil {
+			frames = append(frames, obj)
+		}
+		rest = rest[bodyStart+n:]
+	}
+	return frames
+}
+
+func runRPC(t *testing.T, requests []map[string]interface{}) []map[string]interface{} {
 	t.Helper()
 
 	var in bytes.Buffer
 	for _, req := range requests {
-		line, err := json.Marshal(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		in.Write(line)
-		in.WriteByte('\n')
+		writeFrame(&in, req)
 	}
 
 	client, err := fetch.New(fetch.ProfileHonest)
@@ -36,37 +76,21 @@ func runRPC(t *testing.T, requests []map[string]interface{}) []string {
 	eng := pipeline.StaticEngine{}
 
 	var out bytes.Buffer
-	if err := mcp.ServeIO(&in, &out, client, eng); err != nil {
+	if err := mcp.ServeIO(context.Background(), &in, &out, client, eng); err != nil {
 		t.Fatalf("ServeIO error: %v", err)
 	}
 
-	var lines []string
-	for _, line := range strings.Split(out.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines
-}
-
-func parseResponse(t *testing.T, line string) map[string]interface{} {
-	t.Helper()
-	var resp map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v — line: %s", err, line)
-	}
-	return resp
+	return readFrames(t, out.String())
 }
 
 func TestMCPInitialize(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]interface{}{}},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object, got: %v", resp)
@@ -77,13 +101,13 @@ func TestMCPInitialize(t *testing.T) {
 }
 
 func TestMCPToolsList(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object: %v", resp)
@@ -93,7 +117,6 @@ func TestMCPToolsList(t *testing.T) {
 		t.Fatal("expected non-empty tools list")
 	}
 
-	// Verify expected tool names
 	names := map[string]bool{}
 	for _, tool := range tools {
 		if m, ok := tool.(map[string]interface{}); ok {
@@ -110,13 +133,12 @@ func TestMCPToolsList(t *testing.T) {
 }
 
 func TestMCPFetchURLBlocksPrivate(t *testing.T) {
-	// MCP mode always has AllowPrivate=false — fetching loopback must return blocked_private.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `<html><body><p>Hello</p></body></html>`)
 	}))
 	defer srv.Close()
 
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -124,17 +146,16 @@ func TestMCPFetchURLBlocksPrivate(t *testing.T) {
 			"params": map[string]interface{}{
 				"name": "fetch_url",
 				"arguments": map[string]interface{}{
-					"url":    srv.URL, // httptest binds to 127.0.0.1
+					"url":    srv.URL,
 					"format": "markdown",
 				},
 			},
 		},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
-	// Result should be present (tool errors are returned as isError:true, not JSON-RPC errors)
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object: %v", resp)
@@ -150,44 +171,9 @@ func TestMCPFetchURLBlocksPrivate(t *testing.T) {
 }
 
 func TestMCPStdoutPurity(t *testing.T) {
-	// Only valid JSON-RPC frames should appear on stdout — no log output.
-	lines := runRPC(t, []map[string]interface{}{
-		{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]interface{}{}},
-		{"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-	})
-
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "{") {
-			t.Errorf("non-JSON line found on stdout: %q", line)
-			continue
-		}
-		var obj map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			t.Errorf("invalid JSON on stdout: %v — line: %s", err, line)
-			continue
-		}
-		if obj["jsonrpc"] == nil {
-			t.Errorf("stdout line missing jsonrpc field: %s", line)
-		}
-	}
-}
-
-func TestMCPUnknownMethod(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
-		{"jsonrpc": "2.0", "id": 99, "method": "nonexistent/method"},
-	})
-	if len(lines) == 0 {
-		t.Fatal("expected error response")
-	}
-	resp := parseResponse(t, lines[0])
-	if resp["error"] == nil {
-		t.Error("expected error for unknown method")
-	}
-}
-
-func TestMCPParseError(t *testing.T) {
 	var in bytes.Buffer
-	in.WriteString("{broken json\n")
+	writeFrame(&in, map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]interface{}{}})
+	writeFrame(&in, map[string]interface{}{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
 
 	client, err := fetch.New(fetch.ProfileHonest)
 	if err != nil {
@@ -196,13 +182,52 @@ func TestMCPParseError(t *testing.T) {
 	defer client.Close()
 
 	var out bytes.Buffer
-	mcp.ServeIO(&in, &out, client, pipeline.StaticEngine{})
+	if err := mcp.ServeIO(context.Background(), &in, &out, client, pipeline.StaticEngine{}); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
 
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) == 0 || lines[0] == "" {
+	frames := readFrames(t, out.String())
+	for i, obj := range frames {
+		if obj["jsonrpc"] == nil {
+			t.Errorf("frame %d missing jsonrpc field: %v", i, obj)
+		}
+	}
+	if len(frames) < 2 {
+		t.Fatalf("expected at least 2 response frames, got %d", len(frames))
+	}
+}
+
+func TestMCPUnknownMethod(t *testing.T) {
+	frames := runRPC(t, []map[string]interface{}{
+		{"jsonrpc": "2.0", "id": 99, "method": "nonexistent/method"},
+	})
+	if len(frames) == 0 {
+		t.Fatal("expected error response")
+	}
+	resp := frames[0]
+	if resp["error"] == nil {
+		t.Error("expected error for unknown method")
+	}
+}
+
+func TestMCPParseError(t *testing.T) {
+	var in bytes.Buffer
+	fmt.Fprintf(&in, "Content-Length: 1\r\n\r\n{")
+
+	client, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	var out bytes.Buffer
+	mcp.ServeIO(context.Background(), &in, &out, client, pipeline.StaticEngine{})
+
+	frames := readFrames(t, out.String())
+	if len(frames) == 0 {
 		t.Fatal("expected parse error response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	errObj, ok := resp["error"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected error object: %v", resp)
@@ -213,13 +238,12 @@ func TestMCPParseError(t *testing.T) {
 }
 
 func TestMCPFetchBatchReturnsArray(t *testing.T) {
-	// Even when all URLs fail (private addresses), batch should return a JSON array.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `<html><body><p>Content</p></body></html>`)
 	}))
 	defer srv.Close()
 
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -233,11 +257,10 @@ func TestMCPFetchBatchReturnsArray(t *testing.T) {
 			},
 		},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
-	// Should get a result (not a JSON-RPC level error)
+	resp := frames[0]
 	if resp["result"] == nil {
 		t.Fatalf("expected result, got: %v", resp)
 	}
@@ -247,14 +270,13 @@ func TestMCPFetchBatchReturnsArray(t *testing.T) {
 		t.Fatal("expected content")
 	}
 	text := content[0].(map[string]interface{})["text"].(string)
-	// Output is either a JSON array (success) or an error message containing "blocked_private"
 	if !strings.Contains(text, "[") && !strings.Contains(text, "blocked_private") {
-		t.Errorf("unexpected batch output: %s", text[:min(200, len(text))])
+		t.Errorf("unexpected batch output: %s", truncate(text, 200))
 	}
 }
 
 func TestMCPFetchURLRejectsFileScheme(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -267,10 +289,10 @@ func TestMCPFetchURLRejectsFileScheme(t *testing.T) {
 			},
 		},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object: %v", resp)
@@ -286,7 +308,7 @@ func TestMCPFetchURLRejectsFileScheme(t *testing.T) {
 }
 
 func TestMCPFetchURLRejectsGopherScheme(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -299,10 +321,10 @@ func TestMCPFetchURLRejectsGopherScheme(t *testing.T) {
 			},
 		},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object: %v", resp)
@@ -318,7 +340,7 @@ func TestMCPFetchURLRejectsGopherScheme(t *testing.T) {
 }
 
 func TestMCPFetchBatchRejectsFileScheme(t *testing.T) {
-	lines := runRPC(t, []map[string]interface{}{
+	frames := runRPC(t, []map[string]interface{}{
 		{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -331,10 +353,10 @@ func TestMCPFetchBatchRejectsFileScheme(t *testing.T) {
 			},
 		},
 	})
-	if len(lines) == 0 {
+	if len(frames) == 0 {
 		t.Fatal("expected response")
 	}
-	resp := parseResponse(t, lines[0])
+	resp := frames[0]
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected result object: %v", resp)
@@ -349,9 +371,9 @@ func TestMCPFetchBatchRejectsFileScheme(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	return b
+	return s[:n]
 }

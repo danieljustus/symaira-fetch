@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
+	"github.com/danieljustus/symaira-corekit/logkit"
+	"github.com/danieljustus/symaira-corekit/updatecheck"
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -21,8 +25,10 @@ import (
 var version = "0.1.0-dev"
 
 func main() {
+	slog.SetDefault(logkit.NewFromEnv("symfetch"))
+
 	if err := newRootCmd().Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(int(exitcodes.ExitCodeFromError(err)))
 	}
 }
 
@@ -68,7 +74,6 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				cfg = config.Defaults()
 			}
 
-			// Flag overrides config
 			profile := cfg.HTTP.Profile
 			if cmd.Flags().Changed("profile") {
 				profile = flagProfile
@@ -89,14 +94,14 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			noCache := flagNoCache
 			cacheTTL, err := time.ParseDuration(flagCacheTTL)
 			if err != nil {
-				return fmt.Errorf("invalid cache-ttl: %w", err)
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid cache-ttl")
 			}
 
 			timeoutSec := cfg.HTTP.TimeoutSeconds
 			if cmd.Flags().Changed("timeout") {
 				d, err := time.ParseDuration(flagTimeout)
 				if err != nil {
-					return fmt.Errorf("invalid timeout: %w", err)
+					return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid timeout")
 				}
 				timeoutSec = int(d.Seconds())
 			}
@@ -110,7 +115,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
 			)
 			if err != nil {
-				return fmt.Errorf("init client: %w", err)
+				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
 			}
 			defer client.Close()
 
@@ -286,13 +291,34 @@ func parseHeaders(raw []string) map[string]string {
 }
 
 func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
+	var flagCheck bool
+
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("symfetch", version)
+
+			if flagCheck {
+				checker := updatecheck.NewChecker("danieljustus", "symaira-fetch")
+				release, err := checker.Check(context.Background(), version)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "update check failed: %v\n", err)
+					return nil
+				}
+				if release != nil {
+					fmt.Printf("Update available: %s\n", release.TagName)
+					fmt.Printf("Download: %s\n", release.HTMLURL)
+				} else {
+					fmt.Println("Already up to date.")
+				}
+			}
+			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&flagCheck, "check", false, "Check for updates on GitHub")
+	return cmd
 }
 
 func newMCPCmd() *cobra.Command {
@@ -330,11 +356,11 @@ func newConfigCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return err
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindConfig, "cannot determine home directory")
 			}
 			dir := home + "/.config/symfetch"
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				return err
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindConfig, "cannot create config directory")
 			}
 			path := dir + "/config.toml"
 			if _, err := os.Stat(path); err == nil {
@@ -342,7 +368,7 @@ func newConfigCmd() *cobra.Command {
 				return nil
 			}
 			if err := os.WriteFile(path, []byte(config.DefaultConfigTOML()), 0600); err != nil {
-				return err
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindConfig, "cannot write config file")
 			}
 			fmt.Printf("Config written to %s\n", path)
 			return nil

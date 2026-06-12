@@ -3,14 +3,17 @@ module github.com/danieljustus/symaira-fetch
 go 1.26.4
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Noooste/azuretls-client v1.13.2
+	github.com/danieljustus/symaira-corekit v0.1.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/net v0.55.0
-	golang.org/x/sync v0.20.0
-	golang.org/x/text v0.37.0
+	golang.org/x/sync v0.21.0
+	golang.org/x/text v0.38.0
 )
+
+replace github.com/danieljustus/symaira-corekit => ../symaira-corekit
 
 require (
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
@@ -33,6 +36,6 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/refraction-networking/utls v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 )
