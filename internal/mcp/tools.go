@@ -4,12 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
+)
+
+const (
+	maxTimeoutSec = 120
+	maxCharsLimit = 500_000
 )
 
 func toolDefinitions() []map[string]interface{} {
@@ -97,6 +104,12 @@ func handleFetchURL(reqID interface{}, args map[string]interface{}, client fetch
 		return
 	}
 
+	// Validate URL scheme (http/https only)
+	if err := validateURLScheme(rawURL); err != nil {
+		sendToolError(reqID, err.Error())
+		return
+	}
+
 	format := pipeline.FormatMarkdown
 	if f, ok := args["format"].(string); ok && f != "" {
 		format = pipeline.ParseFormat(f)
@@ -106,6 +119,10 @@ func handleFetchURL(reqID interface{}, args map[string]interface{}, client fetch
 	if v, ok := args["max_chars"].(float64); ok && v > 0 {
 		maxChars = int(v)
 	}
+	if maxChars > maxCharsLimit {
+		slog.Debug("max_chars capped", "requested", maxChars, "limit", maxCharsLimit)
+		maxChars = maxCharsLimit
+	}
 
 	includeLinks, _ := args["include_links"].(bool)
 	raw, _ := args["raw"].(bool)
@@ -113,6 +130,10 @@ func handleFetchURL(reqID interface{}, args map[string]interface{}, client fetch
 	timeoutSec := 30
 	if v, ok := args["timeout_seconds"].(float64); ok && v > 0 {
 		timeoutSec = int(v)
+	}
+	if timeoutSec > maxTimeoutSec {
+		slog.Debug("timeout_seconds capped", "requested", timeoutSec, "limit", maxTimeoutSec)
+		timeoutSec = maxTimeoutSec
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
@@ -155,9 +176,15 @@ func handleFetchBatch(reqID interface{}, args map[string]interface{}, client fet
 
 	items := make([]batch.Item, 0, len(rawURLs))
 	for _, u := range rawURLs {
-		if s, ok := u.(string); ok && s != "" {
-			items = append(items, batch.Item{URL: s})
+		s, ok := u.(string)
+		if !ok || s == "" {
+			continue
 		}
+		if err := validateURLScheme(s); err != nil {
+			sendToolError(reqID, fmt.Sprintf("error: invalid URL %q: %s", s, err.Error()))
+			return
+		}
+		items = append(items, batch.Item{URL: s})
 	}
 
 	format := pipeline.FormatMarkdown
@@ -168,6 +195,10 @@ func handleFetchBatch(reqID interface{}, args map[string]interface{}, client fet
 	maxChars := 20000
 	if v, ok := args["max_chars"].(float64); ok && v > 0 {
 		maxChars = int(v)
+	}
+	if maxChars > maxCharsLimit {
+		slog.Debug("max_chars capped", "requested", maxChars, "limit", maxCharsLimit)
+		maxChars = maxCharsLimit
 	}
 
 	concurrency := 4
@@ -239,4 +270,16 @@ func categoriseError(err error) string {
 	default:
 		return "error: " + msg
 	}
+}
+
+func validateURLScheme(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("unsupported scheme %q: only http and https are allowed", u.Scheme)
+	}
+	return nil
 }

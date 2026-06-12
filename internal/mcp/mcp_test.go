@@ -253,6 +253,102 @@ func TestMCPFetchBatchReturnsArray(t *testing.T) {
 	}
 }
 
+func TestMCPFetchURLRejectsFileScheme(t *testing.T) {
+	lines := runRPC(t, []map[string]interface{}{
+		{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params": map[string]interface{}{
+				"name": "fetch_url",
+				"arguments": map[string]interface{}{
+					"url": "file:///etc/passwd",
+				},
+			},
+		},
+	})
+	if len(lines) == 0 {
+		t.Fatal("expected response")
+	}
+	resp := parseResponse(t, lines[0])
+	result, ok := resp["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result object: %v", resp)
+	}
+	if result["isError"] != true {
+		t.Error("expected isError=true for file:// URL")
+	}
+	content := result["content"].([]interface{})
+	text := content[0].(map[string]interface{})["text"].(string)
+	if !strings.Contains(text, "unsupported scheme") {
+		t.Errorf("expected unsupported scheme error, got: %s", text)
+	}
+}
+
+func TestMCPFetchURLRejectsGopherScheme(t *testing.T) {
+	lines := runRPC(t, []map[string]interface{}{
+		{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params": map[string]interface{}{
+				"name": "fetch_url",
+				"arguments": map[string]interface{}{
+					"url": "gopher://example.com",
+				},
+			},
+		},
+	})
+	if len(lines) == 0 {
+		t.Fatal("expected response")
+	}
+	resp := parseResponse(t, lines[0])
+	result, ok := resp["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result object: %v", resp)
+	}
+	if result["isError"] != true {
+		t.Error("expected isError=true for gopher:// URL")
+	}
+	content := result["content"].([]interface{})
+	text := content[0].(map[string]interface{})["text"].(string)
+	if !strings.Contains(text, "unsupported scheme") {
+		t.Errorf("expected unsupported scheme error, got: %s", text)
+	}
+}
+
+func TestMCPFetchBatchRejectsFileScheme(t *testing.T) {
+	lines := runRPC(t, []map[string]interface{}{
+		{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params": map[string]interface{}{
+				"name": "fetch_batch",
+				"arguments": map[string]interface{}{
+					"urls": []interface{}{"file:///etc/passwd", "https://example.com"},
+				},
+			},
+		},
+	})
+	if len(lines) == 0 {
+		t.Fatal("expected response")
+	}
+	resp := parseResponse(t, lines[0])
+	result, ok := resp["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result object: %v", resp)
+	}
+	if result["isError"] != true {
+		t.Error("expected isError=true for batch with file:// URL")
+	}
+	content := result["content"].([]interface{})
+	text := content[0].(map[string]interface{})["text"].(string)
+	if !strings.Contains(text, "unsupported scheme") {
+		t.Errorf("expected unsupported scheme error, got: %s", text)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
