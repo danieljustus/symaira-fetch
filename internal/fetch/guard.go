@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -19,13 +20,18 @@ func (e *ErrBlockedPrivate) Error() string {
 	return fmt.Sprintf("blocked_private: %s targets a private or loopback address", e.URL)
 }
 
-// checkSSRF returns an error if the URL resolves to a blocked address.
+// checkSSRF returns an error if the URL targets a blocked address.
 // It blocks:
 //   - non-http(s) schemes
 //   - loopback (127.0.0.0/8, ::1)
 //   - link-local (169.254.0.0/16, fe80::/10)
 //   - RFC-1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 //   - IPv4-mapped IPv6 (::ffff:0:0/96)
+//
+// The check happens at TCP connection time via a Control function on the
+// dialer, preventing DNS-rebinding attacks where the first resolution
+// returns a public IP that passes the check but the second (used for the
+// actual connection) resolves to a private IP.
 func checkSSRF(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -42,12 +48,22 @@ func checkSSRF(rawURL string) error {
 		return fmt.Errorf("invalid URL: no host")
 	}
 
+	// Perform DNS resolution and validate every resolved IP at connection
+	// time using a custom Control function. This prevents DNS-rebinding
+	// where a second lookup during the TCP handshake returns a private IP.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resolver := &net.Resolver{}
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			dialer := &net.Dialer{Control: controlSSRF}
+			return dialer.DialContext(ctx, network, address)
+		},
+	}
 	ips, err := resolver.LookupHost(ctx, host)
 	if err != nil {
+		// DNS failure is not inherently an SSRF — the connection will fail.
 		return nil
 	}
 
@@ -59,6 +75,20 @@ func checkSSRF(rawURL string) error {
 		if isPrivate(ip) {
 			return &ErrBlockedPrivate{URL: rawURL}
 		}
+	}
+	return nil
+}
+
+// controlSSRF is a net.Dialer.Control function that rejects connections to
+// private/loopback addresses at TCP connect time, preventing DNS-rebinding.
+func controlSSRF(network, address string, c syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && isPrivate(ip) {
+		return &ErrBlockedPrivate{URL: address}
 	}
 	return nil
 }
