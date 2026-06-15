@@ -17,3 +17,6 @@ vendor/
 
 # Cache
 .cache/
+
+# Agent/developer workspace files
+AGENTS.md
