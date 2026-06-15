@@ -1,5 +1,9 @@
 # Symaira Fetch (`symfetch`)
 
+[![CI](https://github.com/danieljustus/symaira-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/danieljustus/symaira-fetch/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/danieljustus/symaira-fetch)](https://goreportcard.com/report/github.com/danieljustus/symaira-fetch)
+[![Latest Release](https://img.shields.io/github/v/release/danieljustus/symaira-fetch)](https://github.com/danieljustus/symaira-fetch/releases)
+
 AI-native web fetch engine for LLM agents. Fetches web pages using browser-impersonating TLS/HTTP2, transforms HTML into LLM-optimized Markdown or JSON via a semantic DOM pipeline — without JavaScript execution overhead.
 
 ## Features
@@ -20,6 +24,18 @@ brew install danieljustus/tap/symfetch
 Or download from [GitHub Releases](https://github.com/danieljustus/symaira-fetch/releases).
 
 ## Usage
+## Usage Example
+
+```
+$ symfetch https://example.com
+# Example Domain
+
+This domain is for use in illustrative examples in documents. You may use this
+domain in literature without prior coordination or asking for permission.
+
+[More information...](https://www.iana.org/domains/reserved)
+```
+
 
 ```bash
 # Fetch a URL (LLM-optimized Markdown)
