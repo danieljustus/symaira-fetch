@@ -99,6 +99,30 @@ Available MCP tools:
 - **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration.
 - **No JS challenges** — Cloudflare Managed Challenge / Turnstile requires a real browser. TLS/HTTP2 fingerprinting passes basic bot-detection.
 
+
+## Development
+
+### Building from Source
+
+To compile the binary locally:
+```bash
+make build
+```
+
+### Running Tests
+
+To run the unit tests and integration tests:
+```bash
+make test
+```
+
+### Installing from source
+
+To install the latest development version directly via Go:
+```bash
+go install github.com/danieljustus/symaira-fetch/cmd/symfetch@latest
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
