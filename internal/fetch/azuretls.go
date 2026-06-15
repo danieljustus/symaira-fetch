@@ -1,7 +1,6 @@
 package fetch
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -102,46 +101,12 @@ func (c *azureClient) Fetch(ctx context.Context, req Request) (*Response, error)
 		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
 	}
 
-	body := azResp.Body
-	if int64(len(body)) > maxBody {
+	if int64(len(azResp.Body)) > maxBody {
 		return nil, &ErrTooLarge{URL: req.URL, Limit: maxBody}
 	}
 
-	// Charset normalise
-	ct := azResp.Header.Get("Content-Type")
-	body, err = normaliseCharset(body, ct)
-	if err != nil {
-		body = bytes.ToValidUTF8(body, []byte("?"))
-	}
-
-	proto := "HTTP/1.1"
-	if azResp.HttpResponse != nil {
-		if strings.HasPrefix(azResp.HttpResponse.Proto, "HTTP/2") {
-			proto = "HTTP/2.0"
-		} else if strings.HasPrefix(azResp.HttpResponse.Proto, "HTTP/3") {
-			proto = "HTTP/3.0"
-		}
-	}
-
-	headers := make(map[string][]string)
-	for k, v := range azResp.Header {
-		headers[k] = v
-	}
-
-	finalURL := req.URL
-	if azResp.Request != nil {
-		finalURL = azResp.Request.Url
-	}
-
-	return &Response{
-		FinalURL:    finalURL,
-		StatusCode:  azResp.StatusCode,
-		Headers:     headers,
-		Body:        body,
-		Protocol:    proto,
-		ContentType: ct,
-		Elapsed:     elapsed,
-	}, nil
+	proto := detectProto(azResp)
+	return processResponse(req.URL, azResp, elapsed, proto), nil
 }
 
 func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method string, timeout time.Duration, maxBody int64) (*Response, error) {
@@ -175,10 +140,31 @@ func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method st
 		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
 	}
 
-	body := azResp.Body
-	if int64(len(body)) > maxBody {
+	if int64(len(azResp.Body)) > maxBody {
 		return nil, &ErrTooLarge{URL: req.URL, Limit: maxBody}
 	}
+
+	return processResponse(req.URL, azResp, elapsed, "HTTP/2.0"), nil
+}
+
+func (c *azureClient) Close() error {
+	c.session.Close()
+	return nil
+}
+
+func detectProto(azResp *azuretls.Response) string {
+	if azResp.HttpResponse != nil {
+		if strings.HasPrefix(azResp.HttpResponse.Proto, "HTTP/2") {
+			return "HTTP/2.0"
+		} else if strings.HasPrefix(azResp.HttpResponse.Proto, "HTTP/3") {
+			return "HTTP/3.0"
+		}
+	}
+	return "HTTP/1.1"
+}
+
+func processResponse(rawURL string, azResp *azuretls.Response, elapsed time.Duration, proto string) *Response {
+	body := azResp.Body
 
 	ct := azResp.Header.Get("Content-Type")
 	body, _ = normaliseCharset(body, ct)
@@ -188,7 +174,7 @@ func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method st
 		headers[k] = v
 	}
 
-	finalURL := req.URL
+	finalURL := rawURL
 	if azResp.Request != nil {
 		finalURL = azResp.Request.Url
 	}
@@ -198,13 +184,8 @@ func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method st
 		StatusCode:  azResp.StatusCode,
 		Headers:     headers,
 		Body:        body,
-		Protocol:    "HTTP/2.0",
+		Protocol:    proto,
 		ContentType: ct,
 		Elapsed:     elapsed,
-	}, nil
-}
-
-func (c *azureClient) Close() error {
-	c.session.Close()
-	return nil
+	}
 }
