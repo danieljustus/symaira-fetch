@@ -35,8 +35,26 @@ type Cache struct {
 }
 
 // New creates a Cache rooted at dir with the given TTL.
+// It ensures the directory exists with 0700 permissions and fixes
+// overly permissive directories on shared systems.
 func New(dir string, ttl time.Duration) *Cache {
+	ensureCacheDir(dir)
 	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize}
+}
+
+// ensureCacheDir creates the cache directory with 0700 permissions
+// and tightens existing directories that are overly permissive.
+func ensureCacheDir(dir string) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return
+	}
+	if info.Mode().Perm() != 0700 {
+		os.Chmod(dir, 0700)
+	}
 }
 
 // DefaultDir returns ~/.cache/symfetch.

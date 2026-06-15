@@ -126,6 +126,37 @@ func TestCacheDifferentFormatsDontCollide(t *testing.T) {
 	}
 }
 
+func TestCacheDirPermissions(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "cache")
+	c := cache.New(cacheDir, 15*time.Minute)
+	_ = c // ensure dir created
+
+	info, err := os.Stat(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("expected 0700 permissions, got %o", info.Mode().Perm())
+	}
+}
+
+func TestCacheDirPermissionsTightened(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "cache")
+	os.MkdirAll(cacheDir, 0755) // intentionally permissive
+
+	cache.New(cacheDir, 15*time.Minute)
+
+	info, err := os.Stat(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("expected permissions tightened to 0700, got %o", info.Mode().Perm())
+	}
+}
+
 func TestCacheConcurrentAccess(t *testing.T) {
 	c := newTempCache(t, 15*time.Minute)
 	var wg sync.WaitGroup
