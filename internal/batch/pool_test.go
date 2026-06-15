@@ -12,6 +12,27 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
 
+func TestHostOf(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://example.com/path", "example.com"},
+		{"http://example.com:8080/path", "example.com:8080"},
+		{"https://user:pass@example.com/path", "example.com"},
+		{"http://192.168.1.1/api", "192.168.1.1"},
+		{"https://example.com", "example.com"},
+		{"ftp://example.com/file", "example.com"},
+	}
+
+	for _, tt := range tests {
+		got := batch.HostOf(tt.url)
+		if got != tt.want {
+			t.Errorf("hostOf(%q) = %q, want %q", tt.url, got, tt.want)
+		}
+	}
+}
+
 func newTestClient(t *testing.T) fetch.Client {
 	t.Helper()
 	c, err := fetch.New(fetch.ProfileHonest)
