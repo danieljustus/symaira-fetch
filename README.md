@@ -32,7 +32,6 @@ brew install danieljustus/tap/symfetch
 
 Or download from [GitHub Releases](https://github.com/danieljustus/symaira-fetch/releases).
 
-## Usage
 ## Usage Example
 
 ```
