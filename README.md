@@ -64,6 +64,9 @@ symfetch https://example.com --profile firefox
 # With links table
 symfetch https://example.com --links
 
+# Print version
+symfetch --version
+
 # Write default config
 symfetch config init
 
