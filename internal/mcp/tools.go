@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -216,6 +217,26 @@ func categoriseError(err error) error {
 	if err == nil {
 		return nil
 	}
+
+	var blockedErr *pipeline.BlockedError
+	if errors.As(err, &blockedErr) {
+		return fmt.Errorf("[blocked_private] %w", err)
+	}
+
+	var fetchErr *pipeline.FetchError
+	if errors.As(err, &fetchErr) {
+		msg := fetchErr.Unwrap().Error()
+		if strings.Contains(msg, "too_large") {
+			return fmt.Errorf("[too_large] %w", err)
+		}
+		if strings.Contains(msg, "HTTP 4") {
+			return fmt.Errorf("[http_4xx] %w", err)
+		}
+		if strings.Contains(msg, "HTTP 5") {
+			return fmt.Errorf("[http_5xx] %w", err)
+		}
+	}
+
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "blocked_private"):
