@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -14,7 +17,7 @@ import (
 // Set from main before starting the server.
 var ServerVersion = "dev"
 
-// StartServer starts the MCP server over stdio.
+// StartServer starts the MCP server over stdio with graceful shutdown.
 // All logging goes to stderr; only JSON-RPC frames go to stdout.
 func StartServer(profile fetch.Profile, proxy string) error {
 	client, err := fetch.New(profile, fetch.WithProxy(proxy))
@@ -24,9 +27,12 @@ func StartServer(profile fetch.Profile, proxy string) error {
 	defer client.Close()
 	eng := pipeline.StaticEngine{}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	srv := mcpserver.New("symfetch", ServerVersion)
 	registerTools(srv, client, eng)
-	return srv.ServeStdio(context.Background())
+	return srv.ServeStdio(ctx)
 }
 
 // ServeIO runs the MCP JSON-RPC loop reading from r and writing to w.
