@@ -200,7 +200,7 @@ func (c *Cache) scanCache() (int64, []cacheEntryInfo) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if filepath.Ext(path) != ".meta.json" {
+		if filepath.Ext(path) != ".json" {
 			return nil
 		}
 
