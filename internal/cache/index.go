@@ -142,13 +142,3 @@ func (im *indexManager) needsSave() bool {
 	defer im.mu.RUnlock()
 	return im.dirty
 }
-
-func (im *indexManager) reset() {
-	im.mu.Lock()
-	defer im.mu.Unlock()
-
-	im.index = cacheIndex{
-		Entries: make([]indexEntry, 0),
-	}
-	im.dirty = true
-}

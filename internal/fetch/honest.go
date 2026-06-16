@@ -111,51 +111,6 @@ func (c *honestClient) Fetch(ctx context.Context, req Request) (*Response, error
 	return c.doFetchWithRetry(ctx, req, hc, httpReq, maxBody)
 }
 
-func (c *honestClient) doRequest(hc *http.Client, req *http.Request, maxBody int64) (*Response, error) {
-	start := time.Now()
-	resp, err := hc.Do(req)
-	elapsed := time.Since(start)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
-	}
-	defer resp.Body.Close()
-
-	limited := io.LimitReader(resp.Body, maxBody+1)
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if int64(len(body)) > maxBody {
-		return nil, &ErrTooLarge{URL: req.URL.String(), Limit: maxBody}
-	}
-
-	ct := resp.Header.Get("Content-Type")
-	body, err = normaliseCharset(body, ct)
-	if err != nil {
-		body = bytes.ToValidUTF8(body, []byte("?"))
-	}
-
-	proto := "HTTP/1.1"
-	if strings.HasPrefix(resp.Proto, "HTTP/2") {
-		proto = "HTTP/2.0"
-	}
-
-	headers := make(map[string][]string)
-	for k, v := range resp.Header {
-		headers[k] = v
-	}
-
-	return &Response{
-		FinalURL:    resp.Request.URL.String(),
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		Body:        body,
-		Protocol:    proto,
-		ContentType: ct,
-		Elapsed:     elapsed,
-	}, nil
-}
-
 func (c *honestClient) Close() error {
 	c.hc.CloseIdleConnections()
 	return nil
