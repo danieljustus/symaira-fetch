@@ -249,7 +249,8 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 		items[i] = batch.Item{URL: u}
 	}
 
-	pool := batch.Pool{Workers: concurrency, PerHost: 2}
+	adaptivePool := batch.NewAdaptivePool(2, 8)
+	pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
 	results := pool.RunBatch(ctx, client, eng, items, opts)
 
 	for i, r := range results {
