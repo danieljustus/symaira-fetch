@@ -160,6 +160,29 @@ func TestSSRFGuard(t *testing.T) {
 	}
 }
 
+func TestControlSSRF(t *testing.T) {
+	tests := []struct {
+		network string
+		address string
+		blocked bool
+	}{
+		{"tcp", "127.0.0.1:80", true},
+		{"tcp", "10.0.0.1:443", true},
+		{"tcp", "192.168.1.1:80", true},
+		{"tcp", "172.16.0.1:80", true},
+		{"tcp", "8.8.8.8:443", false},
+		{"tcp", "1.1.1.1:443", false},
+	}
+
+	for _, tt := range tests {
+		err := controlSSRF(tt.network, tt.address, nil)
+		isBlocked := err != nil
+		if isBlocked != tt.blocked {
+			t.Errorf("controlSSRF(%q, %q): blocked=%v, want %v (err=%v)", tt.network, tt.address, isBlocked, tt.blocked, err)
+		}
+	}
+}
+
 func TestSSRFGuardIPv4MappedIPv6(t *testing.T) {
 	tests := []struct {
 		ip      string
