@@ -156,25 +156,30 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				return runBatch(ctx, client, eng, args, opts, flagConcurrency)
 			}
 
-			for i, rawURL := range args {
-				if i > 0 {
-					fmt.Print("\n---\n\n")
-				}
-				res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
-					continue
-				}
-				if opts.Format == pipeline.FormatMarkdown {
-					printMarkdownResult(res)
-				} else {
-					fmt.Print(res.Output)
-					if !strings.HasSuffix(res.Output, "\n") {
-						fmt.Println()
-					}
+		var failCount int
+		for i, rawURL := range args {
+			if i > 0 {
+				fmt.Print("\n---\n\n")
+			}
+			res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
+				failCount++
+				continue
+			}
+			if opts.Format == pipeline.FormatMarkdown {
+				printMarkdownResult(res)
+			} else {
+				fmt.Print(res.Output)
+				if !strings.HasSuffix(res.Output, "\n") {
+					fmt.Println()
 				}
 			}
-			return nil
+		}
+		if failCount > 0 {
+			return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(args)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
+		}
+		return nil
 		},
 	}
 
@@ -203,6 +208,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 }
 
 func runRaw(ctx context.Context, client fetch.Client, urls []string, method string, headers map[string]string, data string, allowPrivate bool) error {
+	var failCount int
 	for _, rawURL := range urls {
 		req := fetch.Request{
 			URL:          rawURL,
@@ -216,9 +222,13 @@ func runRaw(ctx context.Context, client fetch.Client, urls []string, method stri
 		resp, err := client.Fetch(ctx, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
+			failCount++
 			continue
 		}
 		fmt.Print(string(resp.Body))
+	}
+	if failCount > 0 {
+		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
 	}
 	return nil
 }
@@ -231,10 +241,12 @@ func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine,
 		Error  string `json:"error,omitempty"`
 	}
 	results := make([]jsonOut, 0, len(urls))
+	var failCount int
 	for _, rawURL := range urls {
 		res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
 		if err != nil {
 			results = append(results, jsonOut{URL: rawURL, OK: false, Error: err.Error()})
+			failCount++
 		} else {
 			results = append(results, jsonOut{URL: rawURL, OK: true, Output: res.Output})
 		}
@@ -244,6 +256,9 @@ func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine,
 		return err
 	}
 	fmt.Println(string(data))
+	if failCount > 0 {
+		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
+	}
 	return nil
 }
 
@@ -257,6 +272,7 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 	pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
 	results := pool.RunBatch(ctx, client, eng, items, opts)
 
+	var failCount int
 	for i, r := range results {
 		if i > 0 {
 			fmt.Print("\n---\n\n")
@@ -268,7 +284,11 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "error fetching %s: %s\n", r.URL, r.Error)
+			failCount++
 		}
+	}
+	if failCount > 0 {
+		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
 	}
 	return nil
 }
