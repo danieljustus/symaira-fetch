@@ -101,7 +101,7 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusNotFound {
 		c.mu.Lock()
 		c.cache[domain] = &cacheEntry{
 			groups:    nil,
@@ -109,6 +109,9 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 		}
 		c.mu.Unlock()
 		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("robots: unexpected status %d for %s", resp.StatusCode, robotsURL)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
