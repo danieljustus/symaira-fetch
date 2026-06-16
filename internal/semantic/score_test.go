@@ -1,10 +1,7 @@
 package semantic_test
 
 import (
-	"strings"
 	"testing"
-
-	"golang.org/x/net/html"
 
 	"github.com/danieljustus/symaira-fetch/internal/semantic"
 )
@@ -98,13 +95,4 @@ func TestScoreBlocks_LinkDensity(t *testing.T) {
 	if len(blocks) == 0 {
 		t.Fatal("ScoreBlocks returned no blocks")
 	}
-}
-
-func parseHTMLDoc(t *testing.T, src string) *html.Node {
-	t.Helper()
-	doc, err := html.Parse(strings.NewReader(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return doc
 }
