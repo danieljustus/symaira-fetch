@@ -106,6 +106,9 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				}
 				timeoutSec = int(d.Seconds())
 			}
+			if timeoutSec > 120 {
+				fmt.Fprintf(os.Stderr, "warning: timeout %ds exceeds MCP server cap of 120s; MCP requests will be capped\n", timeoutSec)
+			}
 
 			extraHeaders := parseHeaders(flagHeaders)
 

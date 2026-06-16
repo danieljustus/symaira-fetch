@@ -96,6 +96,8 @@ Available MCP tools:
 | `fetch_url` | Fetch a single URL, returns Markdown/JSON/text |
 | `fetch_batch` | Fetch up to 20 URLs concurrently |
 
+> **Note:** The MCP server caps `timeout_seconds` at 120 seconds. The CLI `--timeout` flag has no maximum, but values above 120s will produce a warning since MCP requests cannot exceed the cap.
+
 ## Configuration
 
 Symaira Fetch can be configured via config file or environment variables:

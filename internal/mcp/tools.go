@@ -33,7 +33,7 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"max_chars": {"type": "integer", "description": "Maximum characters in output (default 20000)"},
 				"include_links": {"type": "boolean", "description": "Append a Links section with all hrefs (default false)"},
 				"raw": {"type": "boolean", "description": "Return raw decoded response body without semantic processing"},
-				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30)"}
+				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30, max 120)", "maximum": 120}
 			},
 			"required": ["url"]
 		}`),
