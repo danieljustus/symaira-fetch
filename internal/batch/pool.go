@@ -2,6 +2,7 @@ package batch
 
 import (
 	"context"
+	"net/url"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -56,7 +57,7 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 			globalSem <- struct{}{}
 			defer func() { <-globalSem }()
 
-			host := hostOf(item.URL)
+			host := HostOf(item.URL)
 			hostMu.Lock()
 			if _, ok := hostSems[host]; !ok {
 				hostSems[host] = make(chan struct{}, perHost)
@@ -81,16 +82,11 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 	return results
 }
 
-func hostOf(rawURL string) string {
-	// Find end of scheme://host
-	start := 0
-	if idx := len("https://"); len(rawURL) > idx {
-		start = idx
+// HostOf extracts the host (with optional port) from a raw URL string.
+func HostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
 	}
-	for i := start; i < len(rawURL); i++ {
-		if rawURL[i] == '/' {
-			return rawURL[:i]
-		}
-	}
-	return rawURL
+	return u.Host
 }
