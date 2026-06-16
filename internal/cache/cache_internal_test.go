@@ -36,6 +36,9 @@ func TestEvictIfOverSize_EvictsOldest(t *testing.T) {
 		c.Put(url, "chrome", "markdown", body, meta)
 	}
 
+	// Reset the eviction debounce so the explicit call below is not skipped.
+	c.lastEviction = time.Time{}
+
 	c.evictIfOverSize()
 
 	totalSize := c.indexMgr.getTotalSize()

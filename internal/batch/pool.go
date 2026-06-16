@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
@@ -45,6 +46,18 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 	perHost := p.PerHost
 	if perHost <= 0 {
 		perHost = defaultPerHost
+	}
+
+	if !opts.NoCache && opts.Cache == nil {
+		dir := opts.CacheDir
+		if dir == "" {
+			dir = cache.DefaultDir()
+		}
+		ttl := opts.CacheTTL
+		if ttl <= 0 {
+			ttl = 24 * time.Hour
+		}
+		opts.Cache = cache.New(dir, ttl)
 	}
 
 	results := make([]Result, len(items))

@@ -54,6 +54,7 @@ type Options struct {
 	NoCache  bool
 	CacheDir string
 	CacheTTL time.Duration
+	Cache    *cache.Cache // shared cache instance; when nil, per-call cache is created
 	Profile  string
 	Session  string
 
@@ -87,15 +88,19 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 
 	var cacher *cache.Cache
 	if !o.NoCache {
-		dir := o.CacheDir
-		if dir == "" {
-			dir = cache.DefaultDir()
+		if o.Cache != nil {
+			cacher = o.Cache
+		} else {
+			dir := o.CacheDir
+			if dir == "" {
+				dir = cache.DefaultDir()
+			}
+			ttl := o.CacheTTL
+			if ttl <= 0 {
+				ttl = 24 * time.Hour
+			}
+			cacher = cache.New(dir, ttl)
 		}
-		ttl := o.CacheTTL
-		if ttl <= 0 {
-			ttl = 24 * time.Hour
-		}
-		cacher = cache.New(dir, ttl)
 
 		profile := o.Profile
 		if profile == "" {

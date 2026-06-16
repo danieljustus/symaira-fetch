@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const defaultMaxSize = 100 * 1024 * 1024
+const (
+	defaultMaxSize     = 100 * 1024 * 1024
+	evictionDebounce  = 30 * time.Second
+)
 
 // Meta is stored alongside each cached body.
 type Meta struct {
@@ -28,12 +31,13 @@ type Meta struct {
 
 // Cache is a flat-file, content-addressed response cache.
 type Cache struct {
-	dir         string
-	ttl         time.Duration
-	maxSize     int64
-	mu          sync.RWMutex
-	indexMgr    *indexManager
-	lastSave    time.Time
+	dir          string
+	ttl          time.Duration
+	maxSize      int64
+	mu           sync.RWMutex
+	indexMgr     *indexManager
+	lastSave     time.Time
+	lastEviction time.Time
 }
 
 // New creates a Cache rooted at dir with the given TTL.
@@ -164,6 +168,10 @@ type cacheEntryInfo struct {
 }
 
 func (c *Cache) evictIfOverSize() {
+	if time.Since(c.lastEviction) < evictionDebounce {
+		return
+	}
+
 	totalSize := c.indexMgr.getTotalSize()
 	if totalSize <= c.maxSize {
 		return
@@ -186,6 +194,8 @@ func (c *Cache) evictIfOverSize() {
 		c.indexMgr.removeEntry(entry.Key)
 		slog.Debug("evicted cache entry", "key", entry.Key)
 	}
+
+	c.lastEviction = time.Now()
 
 	if c.indexMgr.needsSave() && time.Since(c.lastSave) > time.Minute {
 		c.indexMgr.save()
