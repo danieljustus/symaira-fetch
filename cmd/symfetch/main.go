@@ -137,10 +137,14 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				opts.RobotsChecker = robots.NewChecker()
 			}
 
-			ctx := context.Background()
-			allowPrivate := flagAllowPriv || cfg.Security.AllowPrivate
+		ctx := context.Background()
+		allowPrivate := flagAllowPriv || cfg.Security.AllowPrivate
 
-			if flagRaw {
+		if allowPrivate {
+			fmt.Fprintf(os.Stderr, "warning: SSRF guard disabled — fetching private/loopback addresses is permitted\n")
+		}
+
+		if flagRaw {
 				return runRaw(ctx, client, args, flagMethod, extraHeaders, flagData, allowPrivate)
 			}
 
