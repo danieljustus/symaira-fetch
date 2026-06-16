@@ -388,9 +388,13 @@ func newConfigCmd() *cobra.Command {
 				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindConfig, "cannot create config directory")
 			}
 			path := dir + "/config.toml"
+			force, _ := cmd.Flags().GetBool("force")
 			if _, err := os.Stat(path); err == nil {
-				fmt.Fprintf(os.Stderr, "config already exists at %s\n", path)
-				return nil
+				if !force {
+					fmt.Fprintf(os.Stderr, "config already exists at %s\n", path)
+					return nil
+				}
+				fmt.Fprintf(os.Stderr, "warning: overwriting existing config at %s\n", path)
 			}
 			if err := os.WriteFile(path, []byte(config.DefaultConfigTOML()), 0600); err != nil {
 				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindConfig, "cannot write config file")
@@ -399,6 +403,7 @@ func newConfigCmd() *cobra.Command {
 			return nil
 		},
 	}
+	initCmd.Flags().Bool("force", false, "overwrite existing config file")
 
 	cfg.AddCommand(initCmd)
 	return cfg

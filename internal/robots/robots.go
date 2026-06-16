@@ -42,6 +42,11 @@ type Checker struct {
 }
 
 func NewChecker() *Checker {
+	// robots.txt is fetched with plain net/http rather than the browser-impersonating
+	// TLS client because robots.txt is a well-known, non-sensitive resource that
+	// sites expect to be fetched by any HTTP client. The SSRF guard is also bypassed
+	// here since robots.txt is fetched from the same domain as the target URL — the
+	// main fetch will still be blocked by the SSRF guard if the target is private.
 	return &Checker{
 		cache: make(map[string]*cacheEntry),
 		ttl:   DefaultTTL,
@@ -101,7 +106,7 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusNotFound {
 		c.mu.Lock()
 		c.cache[domain] = &cacheEntry{
 			groups:    nil,
@@ -109,6 +114,9 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 		}
 		c.mu.Unlock()
 		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("robots: unexpected status %d for %s", resp.StatusCode, robotsURL)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

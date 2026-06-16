@@ -73,6 +73,14 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 			globalSem <- struct{}{}
 			defer func() { <-globalSem }()
 
+			// Check for context cancellation before acquiring host semaphore
+			// to avoid wasted work after CLI timeout or explicit cancellation.
+			select {
+			case <-gctx.Done():
+				return gctx.Err()
+			default:
+			}
+
 			host := HostOf(item.URL)
 			hostMu.Lock()
 			if _, ok := hostSems[host]; !ok {
