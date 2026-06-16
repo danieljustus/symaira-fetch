@@ -42,6 +42,11 @@ type Checker struct {
 }
 
 func NewChecker() *Checker {
+	// robots.txt is fetched with plain net/http rather than the browser-impersonating
+	// TLS client because robots.txt is a well-known, non-sensitive resource that
+	// sites expect to be fetched by any HTTP client. The SSRF guard is also bypassed
+	// here since robots.txt is fetched from the same domain as the target URL — the
+	// main fetch will still be blocked by the SSRF guard if the target is private.
 	return &Checker{
 		cache: make(map[string]*cacheEntry),
 		ttl:   DefaultTTL,
