@@ -10,20 +10,14 @@ import (
 func TestEvictIfOverSize_NoEviction(t *testing.T) {
 	dir := t.TempDir()
 	c := New(dir, 15*time.Minute)
-	c.maxSize = 1000 // 1KB limit
+	c.maxSize = 1000
 
-	// Add a small entry
 	body := []byte("small")
 	meta := Meta{StatusCode: 200}
 	c.Put("https://example.com", "chrome", "markdown", body, meta)
 
-	// Reset lastScan to force scan
-	c.lastScan = time.Time{}
-
-	// Should not evict anything (under limit)
 	c.evictIfOverSize()
 
-	// Entry should still exist
 	_, _, ok := c.Get("https://example.com", "chrome", "markdown")
 	if !ok {
 		t.Error("expected entry to still exist after eviction check")
@@ -33,31 +27,20 @@ func TestEvictIfOverSize_NoEviction(t *testing.T) {
 func TestEvictIfOverSize_EvictsOldest(t *testing.T) {
 	dir := t.TempDir()
 	c := New(dir, 15*time.Minute)
-	c.maxSize = 200 // very small limit
+	c.maxSize = 200
 
-	// Add multiple entries with different timestamps
 	for i := 0; i < 5; i++ {
 		url := "https://example.com/page" + string(rune('A'+i))
-		body := make([]byte, 100) // 100 bytes each
+		body := make([]byte, 100)
 		meta := Meta{StatusCode: 200, StoredAt: time.Now().Add(-time.Duration(i) * time.Hour)}
 		c.Put(url, "chrome", "markdown", body, meta)
-		// Manually set older timestamps for earlier entries
-		key := c.key(url, "chrome", "markdown")
-		metaPath := c.metaPath(key)
-		data, _ := os.ReadFile(metaPath)
-		_ = data
 	}
 
-	// Reset lastScan to force scan
-	c.lastScan = time.Time{}
-
-	// Force eviction by calling evictIfOverSize
 	c.evictIfOverSize()
 
-	// Some entries should have been evicted (older ones)
-	// The exact behavior depends on timing, but we can verify the cache is under limit
-	if c.currentSize > c.maxSize {
-		t.Errorf("expected cache size under limit, got %d", c.currentSize)
+	totalSize := c.indexMgr.getTotalSize()
+	if totalSize > c.maxSize {
+		t.Errorf("expected cache size under limit, got %d", totalSize)
 	}
 }
 
