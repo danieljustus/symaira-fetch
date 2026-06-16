@@ -102,3 +102,20 @@ func collectLinks(elements []agentdom.Element) []linkItem {
 	}
 	return links
 }
+
+// FormatMarkdownWithMeta prepends a metadata header (title, status, tokens,
+// truncation warning, final URL) to the markdown output. This is the single
+// source of truth for the metadata format used by both CLI and MCP.
+func FormatMarkdownWithMeta(meta agentdom.Meta, output string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("> **%s** · %d · ~%d tokens",
+		meta.Title, meta.StatusCode, meta.EstTokens))
+	if meta.Truncated {
+		sb.WriteString(" · ⚠ truncated")
+	}
+	sb.WriteString("\n> ")
+	sb.WriteString(meta.FinalURL)
+	sb.WriteString("\n\n")
+	sb.WriteString(output)
+	return sb.String()
+}

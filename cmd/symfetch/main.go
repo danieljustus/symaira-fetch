@@ -19,6 +19,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
+	"github.com/danieljustus/symaira-fetch/internal/render"
 	"github.com/danieljustus/symaira-fetch/internal/robots"
 )
 
@@ -297,14 +298,7 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 }
 
 func printMarkdownResult(res *pipeline.Result) {
-	m := res.Meta
-	fmt.Printf("> **%s** · %d · ~%d tokens", m.Title, m.StatusCode, m.EstTokens)
-	if m.Truncated {
-		fmt.Print(" · ⚠ truncated")
-	}
-	fmt.Println()
-	fmt.Printf("> %s\n\n", m.FinalURL)
-	fmt.Print(res.Output)
+	fmt.Print(render.FormatMarkdownWithMeta(res.Meta, res.Output))
 	if !strings.HasSuffix(res.Output, "\n") {
 		fmt.Println()
 	}

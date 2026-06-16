@@ -14,6 +14,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
+	"github.com/danieljustus/symaira-fetch/internal/render"
 )
 
 const (
@@ -197,18 +198,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 
 func formatWithMeta(res *pipeline.Result, format pipeline.Format) string {
 	if format == pipeline.FormatMarkdown {
-		var sb strings.Builder
-		m := res.Meta
-		sb.WriteString(fmt.Sprintf("> **%s** · %d · ~%d tokens",
-			m.Title, m.StatusCode, m.EstTokens))
-		if m.Truncated {
-			sb.WriteString(" · ⚠ truncated")
-		}
-		sb.WriteString("\n> ")
-		sb.WriteString(m.FinalURL)
-		sb.WriteString("\n\n")
-		sb.WriteString(res.Output)
-		return sb.String()
+		return render.FormatMarkdownWithMeta(res.Meta, res.Output)
 	}
 	return res.Output
 }
