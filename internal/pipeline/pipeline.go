@@ -114,34 +114,31 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
-	// 1. Robots check
 	if o.Robots && o.RobotsChecker != nil {
 		allowed, err := o.RobotsChecker.Check(ctx, "symfetch", rawURL)
 		if err != nil {
 			slog.Debug("robots check error", "url", rawURL, "error", err)
 		} else if !allowed {
-			return nil, fmt.Errorf("robots: disallowed by robots.txt: %s", rawURL)
+			return nil, &BlockedError{URL: rawURL, Reason: "disallowed by robots.txt"}
 		}
 	}
 
-	// 2. Fetch
 	resp, err := c.Fetch(ctx, fetch.Request{
 		URL:          rawURL,
 		AllowPrivate: o.AllowPrivate,
 		Session:      o.Session,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fetch: %w", err)
+		return nil, &FetchError{URL: rawURL, Err: err}
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("http_%d: server returned %d for %s", resp.StatusCode, resp.StatusCode, rawURL)
+		return nil, &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
 	}
 
-	// 3. Materialize (parse DOM)
 	tree, err := eng.Materialize(ctx, resp)
 	if err != nil {
-		return nil, fmt.Errorf("materialize: %w", err)
+		return nil, &ParseError{URL: rawURL, Err: err}
 	}
 
 	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
@@ -172,22 +169,21 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		})
 	}
 
-	// 8. Render
 	var output string
 	switch o.Format {
 	case FormatJSON:
 		output, err = render.JSON(doc)
 		if err != nil {
-			return nil, fmt.Errorf("render json: %w", err)
+			return nil, &RenderError{Format: "json", Err: err}
 		}
 	case FormatText:
 		output = render.Text(doc)
 	case FormatHTML:
 		output = rawHTMLFallback(resp.Body)
-	default: // FormatMarkdown
+	default:
 		output, err = render.Markdown(doc, bestNode, o.IncludeLinks)
 		if err != nil {
-			return nil, fmt.Errorf("render markdown: %w", err)
+			return nil, &RenderError{Format: "markdown", Err: err}
 		}
 	}
 

@@ -110,11 +110,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			extraHeaders := parseHeaders(flagHeaders)
 
 			p := fetch.ParseProfile(profile)
-			client, err := fetch.New(p,
-				fetch.WithProxy(proxy),
-				fetch.WithTimeout(timeoutSec),
-				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
-			)
+	client, err := fetch.New(p,
+		fetch.WithProxy(proxy),
+		fetch.WithTimeout(timeoutSec),
+		fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
+		fetch.WithRetry(true),
+	)
 			if err != nil {
 				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
 			}
@@ -126,6 +127,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				MaxChars:     maxChars,
 				IncludeLinks: flagLinks,
 				NoCache:      noCache,
+				CacheDir:     cfg.Cache.Dir,
 				CacheTTL:     cacheTTL,
 				Profile:      profile,
 				Session:      flagSession,
@@ -247,7 +249,8 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 		items[i] = batch.Item{URL: u}
 	}
 
-	pool := batch.Pool{Workers: concurrency, PerHost: 2}
+	adaptivePool := batch.NewAdaptivePool(2, 8)
+	pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
 	results := pool.RunBatch(ctx, client, eng, items, opts)
 
 	for i, r := range results {

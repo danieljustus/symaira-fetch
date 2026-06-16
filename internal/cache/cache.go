@@ -32,8 +32,8 @@ type Cache struct {
 	ttl         time.Duration
 	maxSize     int64
 	mu          sync.RWMutex
-	currentSize int64
-	lastScan    time.Time
+	indexMgr    *indexManager
+	lastSave    time.Time
 }
 
 // New creates a Cache rooted at dir with the given TTL.
@@ -41,7 +41,9 @@ type Cache struct {
 // overly permissive directories on shared systems.
 func New(dir string, ttl time.Duration) *Cache {
 	ensureCacheDir(dir)
-	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize}
+	im := newIndexManager(dir)
+	im.load()
+	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
 }
 
 // ensureCacheDir creates the cache directory with 0700 permissions
@@ -150,7 +152,7 @@ func (c *Cache) Put(url, profile, format string, body []byte, meta Meta) error {
 	}
 
 	entrySize := int64(len(body)) + int64(len(metaData))
-	c.currentSize += entrySize
+	c.indexMgr.addEntry(k, entrySize, meta.StoredAt)
 	c.evictIfOverSize()
 	return nil
 }
@@ -162,33 +164,32 @@ type cacheEntryInfo struct {
 }
 
 func (c *Cache) evictIfOverSize() {
-	if time.Since(c.lastScan) < time.Hour && c.currentSize <= c.maxSize {
-		return
-	}
-
-	totalSize, entries := c.scanCache()
-	c.currentSize = totalSize
-	c.lastScan = time.Now()
-
+	totalSize := c.indexMgr.getTotalSize()
 	if totalSize <= c.maxSize {
 		return
 	}
 
+	entries := c.indexMgr.getEntries()
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].storedAt.Before(entries[j].storedAt)
+		return entries[i].StoredAt.Before(entries[j].StoredAt)
 	})
 
 	for _, entry := range entries {
 		if totalSize <= c.maxSize*8/10 {
 			break
 		}
-		bodyPath := c.bodyPath(entry.key)
-		metaPath := c.metaPath(entry.key)
+		bodyPath := c.bodyPath(entry.Key)
+		metaPath := c.metaPath(entry.Key)
 		os.Remove(bodyPath)
 		os.Remove(metaPath)
-		totalSize -= entry.size
-		c.currentSize -= entry.size
-		slog.Debug("evicted cache entry", "key", entry.key)
+		totalSize -= entry.Size
+		c.indexMgr.removeEntry(entry.Key)
+		slog.Debug("evicted cache entry", "key", entry.Key)
+	}
+
+	if c.indexMgr.needsSave() && time.Since(c.lastSave) > time.Minute {
+		c.indexMgr.save()
+		c.lastSave = time.Now()
 	}
 }
 

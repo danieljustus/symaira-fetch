@@ -99,64 +99,115 @@ func (c *honestClient) Fetch(ctx context.Context, req Request) (*Response, error
 	defer cancel()
 	httpReq = httpReq.WithContext(timeoutCtx)
 
+	hc := c.hc
 	if req.Proxy != "" {
 		proxyURL, err := url.Parse(req.Proxy)
 		if err == nil {
 			transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
-			tempClient := &http.Client{Transport: transport, CheckRedirect: c.hc.CheckRedirect}
-			return c.doRequest(tempClient, httpReq, maxBody)
+			hc = &http.Client{Transport: transport, CheckRedirect: c.hc.CheckRedirect}
 		}
 	}
 
-	return c.doRequest(c.hc, httpReq, maxBody)
-}
-
-func (c *honestClient) doRequest(hc *http.Client, req *http.Request, maxBody int64) (*Response, error) {
-	start := time.Now()
-	resp, err := hc.Do(req)
-	elapsed := time.Since(start)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
-	}
-	defer resp.Body.Close()
-
-	limited := io.LimitReader(resp.Body, maxBody+1)
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if int64(len(body)) > maxBody {
-		return nil, &ErrTooLarge{URL: req.URL.String(), Limit: maxBody}
-	}
-
-	ct := resp.Header.Get("Content-Type")
-	body, err = normaliseCharset(body, ct)
-	if err != nil {
-		body = bytes.ToValidUTF8(body, []byte("?"))
-	}
-
-	proto := "HTTP/1.1"
-	if strings.HasPrefix(resp.Proto, "HTTP/2") {
-		proto = "HTTP/2.0"
-	}
-
-	headers := make(map[string][]string)
-	for k, v := range resp.Header {
-		headers[k] = v
-	}
-
-	return &Response{
-		FinalURL:    resp.Request.URL.String(),
-		StatusCode:  resp.StatusCode,
-		Headers:     headers,
-		Body:        body,
-		Protocol:    proto,
-		ContentType: ct,
-		Elapsed:     elapsed,
-	}, nil
+	return c.doFetchWithRetry(ctx, req, hc, httpReq, maxBody)
 }
 
 func (c *honestClient) Close() error {
 	c.hc.CloseIdleConnections()
 	return nil
+}
+
+func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *http.Client, httpReq *http.Request, maxBody int64) (*Response, error) {
+	var lastErr error
+	maxRetries := 0
+	if c.opts.enableRetry {
+		maxRetries = c.opts.backoffConfig.MaxRetries
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if c.opts.rateLimiter != nil && !c.opts.rateLimiter.Allow(req.URL) {
+			return nil, fmt.Errorf("circuit breaker open for %s", extractHost(req.URL))
+		}
+
+		start := time.Now()
+		resp, err := hc.Do(httpReq)
+		elapsed := time.Since(start)
+
+		if err == nil {
+			defer resp.Body.Close()
+
+			if IsTransientError(resp.StatusCode, nil) && c.opts.enableRetry && attempt < maxRetries {
+				retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
+				delay := c.opts.backoffConfig.BackoffDelay(attempt)
+				if retryAfter > delay {
+					delay = retryAfter
+				}
+				if c.opts.rateLimiter != nil {
+					c.opts.rateLimiter.RecordFailure(req.URL)
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
+
+			limited := io.LimitReader(resp.Body, maxBody+1)
+			body, err := io.ReadAll(limited)
+			if err != nil {
+				return nil, fmt.Errorf("read body: %w", err)
+			}
+			if int64(len(body)) > maxBody {
+				return nil, &ErrTooLarge{URL: req.URL, Limit: maxBody}
+			}
+
+			ct := resp.Header.Get("Content-Type")
+			body, err = normaliseCharset(body, ct)
+			if err != nil {
+				body = bytes.ToValidUTF8(body, []byte("?"))
+			}
+
+			proto := "HTTP/1.1"
+			if strings.HasPrefix(resp.Proto, "HTTP/2") {
+				proto = "HTTP/2.0"
+			}
+
+			headers := make(map[string][]string)
+			for k, v := range resp.Header {
+				headers[k] = v
+			}
+
+			if c.opts.rateLimiter != nil {
+				c.opts.rateLimiter.RecordSuccess(req.URL)
+			}
+
+			return &Response{
+				FinalURL:    resp.Request.URL.String(),
+				StatusCode:  resp.StatusCode,
+				Headers:     headers,
+				Body:        body,
+				Protocol:    proto,
+				ContentType: ct,
+				Elapsed:     elapsed,
+			}, nil
+		}
+
+		lastErr = err
+		if c.opts.rateLimiter != nil {
+			c.opts.rateLimiter.RecordFailure(req.URL)
+		}
+
+		if !c.opts.enableRetry || attempt >= maxRetries {
+			break
+		}
+
+		delay := c.opts.backoffConfig.BackoffDelay(attempt)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return nil, fmt.Errorf("fetch %s: %w", req.URL, lastErr)
 }

@@ -96,6 +96,22 @@ Available MCP tools:
 | `fetch_url` | Fetch a single URL, returns Markdown/JSON/text |
 | `fetch_batch` | Fetch up to 20 URLs concurrently |
 
+## Configuration
+
+Symaira Fetch can be configured via config file or environment variables:
+
+```bash
+# Write default config to ~/.config/symfetch/config.toml
+symfetch config init
+```
+
+| Environment Variable | Config Field | Description |
+|---------------------|--------------|-------------|
+| `SYMFETCH_CACHE_DIR` | `cache.dir` | Override cache directory (default: `~/.cache/symfetch`) |
+| `SYMFETCH_HTTP_PROFILE` | `http.profile` | Browser profile: chrome, firefox, honest |
+| `SYMFETCH_HTTP_TIMEOUT_SECONDS` | `http.timeout_seconds` | Request timeout in seconds |
+| `SYMFETCH_SECURITY_ALLOW_PRIVATE` | `security.allow_private` | Allow fetching private/loopback addresses |
+
 ## Limitations (v0.1)
 
 - **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration.

@@ -67,6 +67,9 @@ type clientOptions struct {
 	timeoutSeconds int
 	maxBodyMB      int
 	sessionsDir    string
+	enableRetry    bool
+	backoffConfig  BackoffConfig
+	rateLimiter    *HostRateLimiter
 }
 
 // WithProxy sets a default proxy for all requests.
@@ -89,14 +92,33 @@ func WithSessionsDir(dir string) Option {
 	return func(o *clientOptions) { o.sessionsDir = dir }
 }
 
+// WithRetry enables automatic retry with exponential backoff for transient errors.
+func WithRetry(enable bool) Option {
+	return func(o *clientOptions) { o.enableRetry = enable }
+}
+
+// WithBackoffConfig sets custom backoff configuration.
+func WithBackoffConfig(config BackoffConfig) Option {
+	return func(o *clientOptions) { o.backoffConfig = config }
+}
+
+// WithRateLimiter sets a per-host rate limiter with circuit breaker.
+func WithRateLimiter(limiter *HostRateLimiter) Option {
+	return func(o *clientOptions) { o.rateLimiter = limiter }
+}
+
 // New creates a Client for the given Profile.
 func New(p Profile, opts ...Option) (Client, error) {
 	o := &clientOptions{
 		timeoutSeconds: 30,
 		maxBodyMB:      10,
+		backoffConfig:  DefaultBackoffConfig(),
 	}
 	for _, opt := range opts {
 		opt(o)
+	}
+	if o.enableRetry && o.rateLimiter == nil {
+		o.rateLimiter = NewHostRateLimiter(DefaultCircuitBreakerConfig())
 	}
 	switch p {
 	case ProfileHonest:

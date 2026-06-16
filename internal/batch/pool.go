@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -29,8 +30,10 @@ type Result struct {
 
 // Pool runs batch fetch+pipeline jobs with global and per-host concurrency limits.
 type Pool struct {
-	Workers int
-	PerHost int
+	Workers      int
+	PerHost      int
+	Adaptive     bool
+	AdaptivePool *AdaptivePool
 }
 
 // RunBatch executes items in parallel, preserving input order in the results.
@@ -60,7 +63,11 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 			host := HostOf(item.URL)
 			hostMu.Lock()
 			if _, ok := hostSems[host]; !ok {
-				hostSems[host] = make(chan struct{}, perHost)
+				hostConc := perHost
+				if p.Adaptive && p.AdaptivePool != nil {
+					hostConc = p.AdaptivePool.GetConcurrency(host)
+				}
+				hostSems[host] = make(chan struct{}, hostConc)
 			}
 			hs := hostSems[host]
 			hostMu.Unlock()
@@ -68,7 +75,18 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 			hs <- struct{}{}
 			defer func() { <-hs }()
 
+			start := time.Now()
 			res, err := pipeline.Run(gctx, c, eng, item.URL, opts)
+			latency := time.Since(start)
+
+			if p.Adaptive && p.AdaptivePool != nil {
+				if err != nil {
+					p.AdaptivePool.RecordFailure(host)
+				} else {
+					p.AdaptivePool.RecordSuccess(host, latency)
+				}
+			}
+
 			if err != nil {
 				results[i] = Result{URL: item.URL, OK: false, Error: err.Error()}
 			} else {
