@@ -313,6 +313,81 @@ func TestPipeline_ISO8859_1(t *testing.T) {
 	}
 }
 
+func TestParseFormat(t *testing.T) {
+	tests := []struct {
+		input string
+		want  pipeline.Format
+	}{
+		{"markdown", pipeline.FormatMarkdown},
+		{"Markdown", pipeline.FormatMarkdown},
+		{"MARKDOWN", pipeline.FormatMarkdown},
+		{"json", pipeline.FormatJSON},
+		{"JSON", pipeline.FormatJSON},
+		{"text", pipeline.FormatText},
+		{"TEXT", pipeline.FormatText},
+		{"html", pipeline.FormatHTML},
+		{"HTML", pipeline.FormatHTML},
+		{"unknown", pipeline.FormatMarkdown},
+		{"", pipeline.FormatMarkdown},
+		{"xml", pipeline.FormatMarkdown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := pipeline.ParseFormat(tt.input)
+			if got != tt.want {
+				t.Errorf("ParseFormat(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunRaw(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Hello Raw</body></html>"))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+
+	resp, err := pipeline.RunRaw(context.Background(), c, srv.URL, fetch.Request{
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(resp.Body), "Hello Raw") {
+		t.Errorf("expected raw body content, got: %s", resp.Body)
+	}
+}
+
+func TestRunRaw_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("server error"))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+
+	resp, err := pipeline.RunRaw(context.Background(), c, srv.URL, fetch.Request{
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", resp.StatusCode)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

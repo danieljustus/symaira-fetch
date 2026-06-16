@@ -171,3 +171,197 @@ func TestBestBlockFallbackOnTinyPage(t *testing.T) {
 		t.Fatal("BestBlock returned nil even for tiny page")
 	}
 }
+
+func TestClassifyNodeNonElement(t *testing.T) {
+	node := &html.Node{Type: html.TextNode, Data: "hello"}
+	got := semantic.ClassifyNode(node)
+	if got != "" {
+		t.Errorf("expected empty for text node, got %q", got)
+	}
+}
+
+func TestClassifyNodeComment(t *testing.T) {
+	node := &html.Node{Type: html.CommentNode, Data: "comment"}
+	got := semantic.ClassifyNode(node)
+	if got != "" {
+		t.Errorf("expected empty for comment node, got %q", got)
+	}
+}
+
+func TestClassifyNodeUnknownTag(t *testing.T) {
+	doc := parseHTML(t, `<custom-element foo="bar">content</custom-element>`)
+	node := findFirst(doc, "custom-element")
+	got := semantic.ClassifyNode(node)
+	if got != "" {
+		t.Errorf("expected empty for unknown tag, got %q", got)
+	}
+}
+
+func TestClassifyNodeInputButton(t *testing.T) {
+	doc := parseHTML(t, `<input type="button" value="Click"/>`)
+	node := findFirst(doc, "input")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatButton {
+		t.Errorf("expected CatButton for input[type=button], got %q", got)
+	}
+}
+
+func TestClassifyNodeInputReset(t *testing.T) {
+	doc := parseHTML(t, `<input type="reset" value="Reset"/>`)
+	node := findFirst(doc, "input")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatButton {
+		t.Errorf("expected CatButton for input[type=reset], got %q", got)
+	}
+}
+
+func TestClassifyNodeInputImage(t *testing.T) {
+	doc := parseHTML(t, `<input type="image" src="submit.png"/>`)
+	node := findFirst(doc, "input")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatImage {
+		t.Errorf("expected CatImage for input[type=image], got %q", got)
+	}
+}
+
+func TestClassifyNodeInputDefault(t *testing.T) {
+	doc := parseHTML(t, `<input type="email" name="email"/>`)
+	node := findFirst(doc, "input")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatInput {
+		t.Errorf("expected CatInput for input[type=email], got %q", got)
+	}
+}
+
+func TestClassifyNodeSelect(t *testing.T) {
+	doc := parseHTML(t, `<select><option>A</option></select>`)
+	node := findFirst(doc, "select")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatSelect {
+		t.Errorf("expected CatSelect, got %q", got)
+	}
+}
+
+func TestClassifyNodeTextarea(t *testing.T) {
+	doc := parseHTML(t, `<textarea></textarea>`)
+	node := findFirst(doc, "textarea")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatTextarea {
+		t.Errorf("expected CatTextarea, got %q", got)
+	}
+}
+
+func TestClassifyNodeImgWithAlt(t *testing.T) {
+	doc := parseHTML(t, `<img src="photo.jpg" alt="A photo"/>`)
+	node := findFirst(doc, "img")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatImage {
+		t.Errorf("expected CatImage for img with alt, got %q", got)
+	}
+}
+
+func TestClassifyNodeImgWithoutAlt(t *testing.T) {
+	doc := parseHTML(t, `<img src="photo.jpg"/>`)
+	node := findFirst(doc, "img")
+	got := semantic.ClassifyNode(node)
+	if got != "" {
+		t.Errorf("expected empty for img without alt, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleButton(t *testing.T) {
+	doc := parseHTML(t, `<div role="button">Click</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatButton {
+		t.Errorf("expected CatButton for role=button, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleLink(t *testing.T) {
+	doc := parseHTML(t, `<span role="link">Link</span>`)
+	node := findFirst(doc, "span")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatLink {
+		t.Errorf("expected CatLink for role=link, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleTextbox(t *testing.T) {
+	doc := parseHTML(t, `<div role="textbox">Input</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatInput {
+		t.Errorf("expected CatInput for role=textbox, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleSearchbox(t *testing.T) {
+	doc := parseHTML(t, `<div role="searchbox">Search</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatInput {
+		t.Errorf("expected CatInput for role=searchbox, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleSpinbutton(t *testing.T) {
+	doc := parseHTML(t, `<div role="spinbutton">123</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatInput {
+		t.Errorf("expected CatInput for role=spinbutton, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleCombobox(t *testing.T) {
+	doc := parseHTML(t, `<div role="combobox">Options</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatSelect {
+		t.Errorf("expected CatSelect for role=combobox, got %q", got)
+	}
+}
+
+func TestClassifyNodeRoleListbox(t *testing.T) {
+	doc := parseHTML(t, `<div role="listbox">Items</div>`)
+	node := findFirst(doc, "div")
+	got := semantic.ClassifyNode(node)
+	if got != semantic.CatSelect {
+		t.Errorf("expected CatSelect for role=listbox, got %q", got)
+	}
+}
+
+func TestClassifyNodeTextElements(t *testing.T) {
+	textTags := []string{"h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "dt", "dd", "blockquote", "pre", "code", "figcaption", "article", "section", "main", "aside", "header", "footer", "nav"}
+	for _, tag := range textTags {
+		t.Run(tag, func(t *testing.T) {
+			doc := parseHTML(t, "<"+tag+">Content</"+tag+">")
+			node := findFirst(doc, tag)
+			if node == nil {
+				t.Fatalf("node not found for %s", tag)
+			}
+			got := semantic.ClassifyNode(node)
+			if got != semantic.CatText {
+				t.Errorf("expected CatText for %s, got %q", tag, got)
+			}
+		})
+	}
+}
+
+func TestClassifyNodeTextElementsTable(t *testing.T) {
+	tableTags := []string{"td", "th"}
+	for _, tag := range tableTags {
+		t.Run(tag, func(t *testing.T) {
+			doc := parseHTML(t, "<table><tr><"+tag+">Content</"+tag+"></tr></table>")
+			node := findFirst(doc, tag)
+			if node == nil {
+				t.Fatalf("node not found for %s", tag)
+			}
+			got := semantic.ClassifyNode(node)
+			if got != semantic.CatText {
+				t.Errorf("expected CatText for %s, got %q", tag, got)
+			}
+		})
+	}
+}
