@@ -110,11 +110,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			extraHeaders := parseHeaders(flagHeaders)
 
 			p := fetch.ParseProfile(profile)
-			client, err := fetch.New(p,
-				fetch.WithProxy(proxy),
-				fetch.WithTimeout(timeoutSec),
-				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
-			)
+	client, err := fetch.New(p,
+		fetch.WithProxy(proxy),
+		fetch.WithTimeout(timeoutSec),
+		fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
+		fetch.WithRetry(true),
+	)
 			if err != nil {
 				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
 			}

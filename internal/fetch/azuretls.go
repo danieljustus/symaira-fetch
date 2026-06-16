@@ -79,7 +79,6 @@ func (c *azureClient) Fetch(ctx context.Context, req Request) (*Response, error)
 		azReq.Body = req.Body
 	}
 
-	// Build ordered headers
 	if len(req.Headers) > 0 {
 		oh := make(azuretls.OrderedHeaders, 0, len(req.Headers))
 		for k, v := range req.Headers {
@@ -88,25 +87,11 @@ func (c *azureClient) Fetch(ctx context.Context, req Request) (*Response, error)
 		azReq.OrderedHeaders = oh
 	}
 
-	// Per-request proxy override via session-level (azuretls supports SetProxy on session only)
 	if req.Proxy != "" {
-		// Create a one-off session for proxy override
 		return c.fetchWithProxy(ctx, req, method, timeout, maxBody)
 	}
 
-	start := time.Now()
-	azResp, err := c.session.Do(azReq)
-	elapsed := time.Since(start)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
-	}
-
-	if int64(len(azResp.Body)) > maxBody {
-		return nil, &ErrTooLarge{URL: req.URL, Limit: maxBody}
-	}
-
-	proto := detectProto(azResp)
-	return processResponse(req.URL, azResp, elapsed, proto), nil
+	return c.doFetchWithRetry(ctx, req, azReq, maxBody)
 }
 
 func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method string, timeout time.Duration, maxBody int64) (*Response, error) {
@@ -150,6 +135,55 @@ func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method st
 func (c *azureClient) Close() error {
 	c.session.Close()
 	return nil
+}
+
+func (c *azureClient) doFetchWithRetry(ctx context.Context, req Request, azReq *azuretls.Request, maxBody int64) (*Response, error) {
+	var lastErr error
+	maxRetries := 0
+	if c.opts.enableRetry {
+		maxRetries = c.opts.backoffConfig.MaxRetries
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if c.opts.rateLimiter != nil && !c.opts.rateLimiter.Allow(req.URL) {
+			return nil, fmt.Errorf("circuit breaker open for %s", extractHost(req.URL))
+		}
+
+		start := time.Now()
+		azResp, err := c.session.Do(azReq)
+		elapsed := time.Since(start)
+
+		if err == nil && int64(len(azResp.Body)) > maxBody {
+			err = &ErrTooLarge{URL: req.URL, Limit: maxBody}
+		}
+
+		if err == nil {
+			proto := detectProto(azResp)
+			resp := processResponse(req.URL, azResp, elapsed, proto)
+			if c.opts.rateLimiter != nil {
+				c.opts.rateLimiter.RecordSuccess(req.URL)
+			}
+			return resp, nil
+		}
+
+		lastErr = err
+		if c.opts.rateLimiter != nil {
+			c.opts.rateLimiter.RecordFailure(req.URL)
+		}
+
+		if !c.opts.enableRetry || attempt >= maxRetries {
+			break
+		}
+
+		delay := c.opts.backoffConfig.BackoffDelay(attempt)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return nil, lastErr
 }
 
 func detectProto(azResp *azuretls.Response) string {
