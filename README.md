@@ -32,7 +32,6 @@ brew install danieljustus/tap/symfetch
 
 Or download from [GitHub Releases](https://github.com/danieljustus/symaira-fetch/releases).
 
-## Usage
 ## Usage Example
 
 ```
@@ -64,6 +63,9 @@ symfetch https://example.com --profile firefox
 
 # With links table
 symfetch https://example.com --links
+
+# Print version
+symfetch --version
 
 # Write default config
 symfetch config init

@@ -53,8 +53,9 @@ func newRootCmd() *cobra.Command {
 	)
 
 	root := &cobra.Command{
-		Use:   "symfetch [url...]",
-		Short: "AI-native web fetch engine for LLM agents",
+		Use:     "symfetch [url...]",
+		Short:   "AI-native web fetch engine for LLM agents",
+		Version: version,
 		Long: `symfetch fetches web pages using browser-impersonating TLS and
 returns LLM-optimized Markdown, JSON, or plain text.
 
