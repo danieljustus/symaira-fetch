@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Noooste/azuretls-client v1.13.2
-	github.com/danieljustus/symaira-corekit v0.1.0
+	github.com/danieljustus/symaira-corekit v0.1.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/net v0.56.0
 	golang.org/x/sync v0.21.0
