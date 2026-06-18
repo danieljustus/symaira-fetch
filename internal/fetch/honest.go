@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,8 +16,10 @@ const honestUA = "symfetch/0.1 (+https://github.com/danieljustus/symaira-fetch)"
 
 // honestClient uses stdlib net/http with a plain user-agent.
 type honestClient struct {
-	hc   *http.Client
-	opts *clientOptions
+	hc           *http.Client
+	opts         *clientOptions
+	proxyClients map[string]*http.Client
+	proxyMu      sync.Mutex
 }
 
 func newHonestClient(o *clientOptions) (*honestClient, error) {
@@ -43,8 +46,9 @@ func newHonestClient(o *clientOptions) (*honestClient, error) {
 	}
 
 	return &honestClient{
-		hc:   hc,
-		opts: o,
+		hc:           hc,
+		opts:         o,
+		proxyClients: make(map[string]*http.Client),
 	}, nil
 }
 
@@ -94,18 +98,37 @@ func (c *honestClient) Fetch(ctx context.Context, req Request) (*Response, error
 
 	hc := c.hc
 	if req.Proxy != "" {
-		proxyURL, err := url.Parse(req.Proxy)
-		if err == nil {
-			transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
-			hc = &http.Client{Transport: transport, CheckRedirect: c.hc.CheckRedirect}
-		}
+		hc = c.getProxyClient(req.Proxy)
 	}
 
 	return c.doFetchWithRetry(ctx, req, hc, httpReq, maxBody)
 }
 
+func (c *honestClient) getProxyClient(proxyURL string) *http.Client {
+	c.proxyMu.Lock()
+	defer c.proxyMu.Unlock()
+
+	if client, ok := c.proxyClients[proxyURL]; ok {
+		return client
+	}
+
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return c.hc
+	}
+	transport := &http.Transport{Proxy: http.ProxyURL(parsed)}
+	client := &http.Client{Transport: transport, CheckRedirect: c.hc.CheckRedirect}
+	c.proxyClients[proxyURL] = client
+	return client
+}
+
 func (c *honestClient) Close() error {
 	c.hc.CloseIdleConnections()
+	c.proxyMu.Lock()
+	for _, client := range c.proxyClients {
+		client.CloseIdleConnections()
+	}
+	c.proxyMu.Unlock()
 	return nil
 }
 
