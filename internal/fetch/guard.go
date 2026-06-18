@@ -64,8 +64,10 @@ func checkSSRF(rawURL string) error {
 
 	ips, err := ssrfResolver.LookupHost(ctx, host)
 	if err != nil {
-		// DNS failure is not inherently an SSRF — the connection will fail.
-		return nil
+		// Fail closed: DNS resolution failure could indicate a rebinding
+		// attack or NXDOMAIN bypass. The connect-time controlSSRF provides
+		// a second layer, but failing here prevents any further processing.
+		return fmt.Errorf("DNS resolution failed for %s: %w", host, err)
 	}
 
 	for _, ipStr := range ips {
