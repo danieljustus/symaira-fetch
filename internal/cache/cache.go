@@ -203,6 +203,9 @@ func (c *Cache) evictIfOverSize() {
 	}
 }
 
+// scanCache walks the cache directory and rebuilds entry metadata from
+// disk. It is unused in the normal eviction path (which uses the
+// index manager) and exists only for startup integrity checks and tests.
 func (c *Cache) scanCache() (int64, []cacheEntryInfo) {
 	var totalSize int64
 	var entries []cacheEntryInfo
