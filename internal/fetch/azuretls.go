@@ -11,10 +11,9 @@ import (
 
 // azureClient uses azuretls for browser-impersonating TLS+HTTP/2.
 type azureClient struct {
-	session   *azuretls.Session
-	opts      *clientOptions
-	profile   Profile
-	sessStore *sessionStore
+	session *azuretls.Session
+	opts    *clientOptions
+	profile Profile
 }
 
 func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
@@ -35,16 +34,10 @@ func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
 		}
 	}
 
-	var sessDir string
-	if o.sessionsDir != "" {
-		sessDir = o.sessionsDir
-	}
-
 	return &azureClient{
-		session:   sess,
-		opts:      o,
-		profile:   p,
-		sessStore: newSessionStore(sessDir),
+		session: sess,
+		opts:    o,
+		profile: p,
 	}, nil
 }
 

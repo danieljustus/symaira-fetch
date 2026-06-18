@@ -15,9 +15,8 @@ const honestUA = "symfetch/0.1 (+https://github.com/danieljustus/symaira-fetch)"
 
 // honestClient uses stdlib net/http with a plain user-agent.
 type honestClient struct {
-	hc        *http.Client
-	opts      *clientOptions
-	sessStore *sessionStore
+	hc   *http.Client
+	opts *clientOptions
 }
 
 func newHonestClient(o *clientOptions) (*honestClient, error) {
@@ -43,15 +42,9 @@ func newHonestClient(o *clientOptions) (*honestClient, error) {
 		},
 	}
 
-	var sessDir string
-	if o.sessionsDir != "" {
-		sessDir = o.sessionsDir
-	}
-
 	return &honestClient{
-		hc:        hc,
-		opts:      o,
-		sessStore: newSessionStore(sessDir),
+		hc:   hc,
+		opts: o,
 	}, nil
 }
 
