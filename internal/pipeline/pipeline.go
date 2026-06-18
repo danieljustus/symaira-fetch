@@ -106,7 +106,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format)); ok {
+		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session); ok {
 			slog.Debug("cache hit", "url", rawURL)
 			return &Result{
 				Output: string(body),
@@ -211,7 +211,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		if err := cacher.Put(rawURL, profile, string(o.Format), []byte(output), cache.Meta{
+		if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, []byte(output), cache.Meta{
 			URL:         rawURL,
 			FinalURL:    resp.FinalURL,
 			StatusCode:  resp.StatusCode,
