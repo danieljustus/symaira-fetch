@@ -32,6 +32,14 @@ func (e *ErrBlockedPrivate) Error() string {
 // dialer, preventing DNS-rebinding attacks where the first resolution
 // returns a public IP that passes the check but the second (used for the
 // actual connection) resolves to a private IP.
+var ssrfResolver = &net.Resolver{
+	PreferGo: true,
+	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialer := &net.Dialer{Control: controlSSRF}
+		return dialer.DialContext(ctx, network, address)
+	},
+}
+
 func checkSSRF(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -54,14 +62,7 @@ func checkSSRF(rawURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			dialer := &net.Dialer{Control: controlSSRF}
-			return dialer.DialContext(ctx, network, address)
-		},
-	}
-	ips, err := resolver.LookupHost(ctx, host)
+	ips, err := ssrfResolver.LookupHost(ctx, host)
 	if err != nil {
 		// DNS failure is not inherently an SSRF — the connection will fail.
 		return nil
