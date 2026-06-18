@@ -1,12 +1,15 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
 
@@ -91,7 +94,7 @@ func TestCategoriseError_Nil(t *testing.T) {
 }
 
 func TestCategoriseError_BlockedPrivate(t *testing.T) {
-	err := errors.New("blocked_private: address is private")
+	err := &pipeline.BlockedError{URL: "http://127.0.0.1"}
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[blocked_private]") {
@@ -103,7 +106,7 @@ func TestCategoriseError_BlockedPrivate(t *testing.T) {
 }
 
 func TestCategoriseError_TooLarge(t *testing.T) {
-	err := errors.New("too_large: body exceeds limit")
+	err := &pipeline.FetchError{URL: "http://example.com", Err: &fetch.ErrTooLarge{URL: "http://example.com", Limit: 1024}}
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[too_large]") {
@@ -112,7 +115,7 @@ func TestCategoriseError_TooLarge(t *testing.T) {
 }
 
 func TestCategoriseError_HTTP4xx(t *testing.T) {
-	err := errors.New("http_404: not found")
+	err := &pipeline.FetchError{URL: "http://example.com", Err: fmt.Errorf("HTTP 404")}
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[http_4xx]") {
@@ -121,7 +124,7 @@ func TestCategoriseError_HTTP4xx(t *testing.T) {
 }
 
 func TestCategoriseError_HTTP5xx(t *testing.T) {
-	err := errors.New("http_503: service unavailable")
+	err := &pipeline.FetchError{URL: "http://example.com", Err: fmt.Errorf("HTTP 503")}
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[http_5xx]") {
@@ -130,7 +133,7 @@ func TestCategoriseError_HTTP5xx(t *testing.T) {
 }
 
 func TestCategoriseError_Timeout(t *testing.T) {
-	err := errors.New("timeout: context deadline exceeded")
+	err := context.DeadlineExceeded
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[timeout]") {
@@ -138,30 +141,12 @@ func TestCategoriseError_Timeout(t *testing.T) {
 	}
 }
 
-func TestCategoriseError_Deadline(t *testing.T) {
-	err := errors.New("deadline exceeded")
-	got := categoriseError(err)
-
-	if !strings.Contains(got.Error(), "[timeout]") {
-		t.Errorf("expected [timeout] prefix for deadline error, got: %s", got.Error())
-	}
-}
-
 func TestCategoriseError_DNS(t *testing.T) {
-	err := errors.New("no such host")
+	err := &net.DNSError{Err: "no such host", Name: "example.com"}
 	got := categoriseError(err)
 
 	if !strings.Contains(got.Error(), "[dns]") {
 		t.Errorf("expected [dns] prefix, got: %s", got.Error())
-	}
-}
-
-func TestCategoriseError_DNSError(t *testing.T) {
-	err := errors.New("dns: lookup failed")
-	got := categoriseError(err)
-
-	if !strings.Contains(got.Error(), "[dns]") {
-		t.Errorf("expected [dns] prefix for dns error, got: %s", got.Error())
 	}
 }
 

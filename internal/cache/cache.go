@@ -74,13 +74,15 @@ func DefaultDir() string {
 	return filepath.Join(home, ".cache", "symfetch")
 }
 
-func (c *Cache) key(url, profile, format string) string {
+func (c *Cache) key(url, profile, format, session string) string {
 	h := sha256.New()
 	h.Write([]byte(url))
 	h.Write([]byte("|"))
 	h.Write([]byte(profile))
 	h.Write([]byte("|"))
 	h.Write([]byte(format))
+	h.Write([]byte("|"))
+	h.Write([]byte(session))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -93,11 +95,11 @@ func (c *Cache) metaPath(k string) string {
 }
 
 // Get returns cached body+meta if present and not expired.
-func (c *Cache) Get(url, profile, format string) ([]byte, *Meta, bool) {
+func (c *Cache) Get(url, profile, format, session string) ([]byte, *Meta, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	k := c.key(url, profile, format)
+	k := c.key(url, profile, format, session)
 	metaData, err := os.ReadFile(c.metaPath(k))
 	if err != nil {
 		return nil, nil, false
@@ -121,11 +123,11 @@ func (c *Cache) Get(url, profile, format string) ([]byte, *Meta, bool) {
 }
 
 // Put stores the body and meta in the cache.
-func (c *Cache) Put(url, profile, format string, body []byte, meta Meta) error {
+func (c *Cache) Put(url, profile, format, session string, body []byte, meta Meta) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	k := c.key(url, profile, format)
+	k := c.key(url, profile, format, session)
 	dir := filepath.Join(c.dir, k[:2])
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err

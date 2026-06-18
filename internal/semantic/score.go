@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -26,12 +27,9 @@ type BlockScore struct {
 func ScoreBlocks(root *html.Node) []BlockScore {
 	var blocks []BlockScore
 	walkBlocks(root, &blocks)
-	// Sort desc by score
-	for i := 1; i < len(blocks); i++ {
-		for j := i; j > 0 && blocks[j].Score > blocks[j-1].Score; j-- {
-			blocks[j], blocks[j-1] = blocks[j-1], blocks[j]
-		}
-	}
+	sort.Slice(blocks, func(i, j int) bool {
+		return blocks[i].Score > blocks[j].Score
+	})
 	return blocks
 }
 

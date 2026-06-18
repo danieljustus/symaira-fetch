@@ -18,7 +18,7 @@ func newTempCache(t *testing.T, ttl time.Duration) *cache.Cache {
 
 func TestCacheGetMiss(t *testing.T) {
 	c := newTempCache(t, 15*time.Minute)
-	_, _, ok := c.Get("https://example.com", "chrome", "markdown")
+	_, _, ok := c.Get("https://example.com", "chrome", "markdown", "")
 	if ok {
 		t.Error("expected cache miss")
 	}
@@ -29,11 +29,11 @@ func TestCachePutAndGet(t *testing.T) {
 	body := []byte("hello world")
 	meta := cache.Meta{StatusCode: 200, FinalURL: "https://example.com", ContentType: "text/html"}
 
-	if err := c.Put("https://example.com", "chrome", "markdown", body, meta); err != nil {
+	if err := c.Put("https://example.com", "chrome", "markdown", "", body, meta); err != nil {
 		t.Fatal(err)
 	}
 
-	gotBody, gotMeta, ok := c.Get("https://example.com", "chrome", "markdown")
+	gotBody, gotMeta, ok := c.Get("https://example.com", "chrome", "markdown", "")
 	if !ok {
 		t.Fatal("expected cache hit")
 	}
@@ -49,28 +49,28 @@ func TestCacheTTLExpiry(t *testing.T) {
 	ttl := 50 * time.Millisecond
 	c := newTempCache(t, ttl)
 
-	if err := c.Put("https://example.com", "chrome", "markdown", []byte("data"), cache.Meta{StatusCode: 200}); err != nil {
+	if err := c.Put("https://example.com", "chrome", "markdown", "", []byte("data"), cache.Meta{StatusCode: 200}); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, _, ok := c.Get("https://example.com", "chrome", "markdown"); !ok {
+	if _, _, ok := c.Get("https://example.com", "chrome", "markdown", ""); !ok {
 		t.Fatal("expected immediate hit")
 	}
 
 	time.Sleep(ttl + 20*time.Millisecond)
 
-	if _, _, ok := c.Get("https://example.com", "chrome", "markdown"); ok {
+	if _, _, ok := c.Get("https://example.com", "chrome", "markdown", ""); ok {
 		t.Error("expected cache miss after TTL expiry")
 	}
 }
 
 func TestCacheDifferentProfilesDontCollide(t *testing.T) {
 	c := newTempCache(t, 15*time.Minute)
-	c.Put("https://example.com", "chrome", "markdown", []byte("chrome-body"), cache.Meta{StatusCode: 200})
-	c.Put("https://example.com", "firefox", "markdown", []byte("firefox-body"), cache.Meta{StatusCode: 200})
+c.Put("https://example.com", "chrome", "markdown", "", []byte("chrome-body"), cache.Meta{StatusCode: 200})
+	c.Put("https://example.com", "firefox", "markdown", "", []byte("firefox-body"), cache.Meta{StatusCode: 200})
 
-	b1, _, ok1 := c.Get("https://example.com", "chrome", "markdown")
-	b2, _, ok2 := c.Get("https://example.com", "firefox", "markdown")
+	b1, _, ok1 := c.Get("https://example.com", "chrome", "markdown", "")
+	b2, _, ok2 := c.Get("https://example.com", "firefox", "markdown", "")
 
 	if !ok1 || !ok2 {
 		t.Fatal("expected both hits")
@@ -83,7 +83,7 @@ func TestCacheDifferentProfilesDontCollide(t *testing.T) {
 func TestCacheAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	c := cache.New(dir, 15*time.Minute)
-	c.Put("https://example.com", "chrome", "markdown", []byte("data"), cache.Meta{StatusCode: 200})
+	c.Put("https://example.com", "chrome", "markdown", "", []byte("data"), cache.Meta{StatusCode: 200})
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -104,13 +104,13 @@ func TestCacheAtomicWrite(t *testing.T) {
 
 func TestCacheDifferentFormatsDontCollide(t *testing.T) {
 	c := newTempCache(t, 15*time.Minute)
-	c.Put("https://example.com", "chrome", "markdown", []byte("md-body"), cache.Meta{StatusCode: 200})
-	c.Put("https://example.com", "chrome", "json", []byte("json-body"), cache.Meta{StatusCode: 200})
-	c.Put("https://example.com", "chrome", "text", []byte("text-body"), cache.Meta{StatusCode: 200})
+c.Put("https://example.com", "chrome", "markdown", "", []byte("md-body"), cache.Meta{StatusCode: 200})
+	c.Put("https://example.com", "chrome", "json", "", []byte("json-body"), cache.Meta{StatusCode: 200})
+	c.Put("https://example.com", "chrome", "text", "", []byte("text-body"), cache.Meta{StatusCode: 200})
 
-	b1, _, ok1 := c.Get("https://example.com", "chrome", "markdown")
-	b2, _, ok2 := c.Get("https://example.com", "chrome", "json")
-	b3, _, ok3 := c.Get("https://example.com", "chrome", "text")
+	b1, _, ok1 := c.Get("https://example.com", "chrome", "markdown", "")
+	b2, _, ok2 := c.Get("https://example.com", "chrome", "json", "")
+	b3, _, ok3 := c.Get("https://example.com", "chrome", "text", "")
 
 	if !ok1 || !ok2 || !ok3 {
 		t.Fatal("expected all three hits")
@@ -167,8 +167,8 @@ func TestCacheConcurrentAccess(t *testing.T) {
 			url := "https://example.com/page" + string(rune('A'+i%26))
 			body := []byte("body")
 			meta := cache.Meta{StatusCode: 200}
-			c.Put(url, "chrome", "markdown", body, meta)
-			c.Get(url, "chrome", "markdown")
+			c.Put(url, "chrome", "markdown", "", body, meta)
+			c.Get(url, "chrome", "markdown", "")
 		}(i)
 	}
 	wg.Wait()

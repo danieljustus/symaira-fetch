@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -227,23 +228,16 @@ func categoriseError(err error) error {
 		}
 	}
 
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "blocked_private"):
-		return fmt.Errorf("[blocked_private] %w", err)
-	case strings.Contains(msg, "too_large"):
-		return fmt.Errorf("[too_large] %w", err)
-	case strings.Contains(msg, "http_4"):
-		return fmt.Errorf("[http_4xx] %w", err)
-	case strings.Contains(msg, "http_5"):
-		return fmt.Errorf("[http_5xx] %w", err)
-	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline"):
-		return fmt.Errorf("[timeout] %w", err)
-	case strings.Contains(msg, "no such host") || strings.Contains(msg, "dns"):
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
 		return fmt.Errorf("[dns] %w", err)
-	default:
-		return err
 	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("[timeout] %w", err)
+	}
+
+	return err
 }
 
 func validateURLScheme(rawURL string) error {

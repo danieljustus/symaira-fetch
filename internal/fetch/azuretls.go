@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	azuretls "github.com/Noooste/azuretls-client"
@@ -11,10 +12,11 @@ import (
 
 // azureClient uses azuretls for browser-impersonating TLS+HTTP/2.
 type azureClient struct {
-	session   *azuretls.Session
-	opts      *clientOptions
-	profile   Profile
-	sessStore *sessionStore
+	session       *azuretls.Session
+	opts          *clientOptions
+	profile       Profile
+	proxySessions map[string]*azuretls.Session
+	proxyMu       sync.Mutex
 }
 
 func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
@@ -35,16 +37,11 @@ func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
 		}
 	}
 
-	var sessDir string
-	if o.sessionsDir != "" {
-		sessDir = o.sessionsDir
-	}
-
 	return &azureClient{
-		session:   sess,
-		opts:      o,
-		profile:   p,
-		sessStore: newSessionStore(sessDir),
+		session:       sess,
+		opts:          o,
+		profile:       p,
+		proxySessions: make(map[string]*azuretls.Session),
 	}, nil
 }
 
@@ -95,19 +92,7 @@ func (c *azureClient) Fetch(ctx context.Context, req Request) (*Response, error)
 }
 
 func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method string, timeout time.Duration, maxBody int64) (*Response, error) {
-	var browser string
-	switch c.profile {
-	case ProfileFirefox:
-		browser = azuretls.Firefox
-	default:
-		browser = azuretls.Chrome
-	}
-	sess := azuretls.NewSession()
-	sess.Browser = browser
-	if err := sess.SetProxy(req.Proxy); err != nil {
-		return nil, fmt.Errorf("invalid proxy %s: %w", req.Proxy, err)
-	}
-	defer sess.Close()
+	sess := c.getProxySession(req.Proxy)
 
 	azReq := &azuretls.Request{
 		Method:  method,
@@ -132,8 +117,37 @@ func (c *azureClient) fetchWithProxy(ctx context.Context, req Request, method st
 	return processResponse(req.URL, azResp, elapsed, "HTTP/2.0"), nil
 }
 
+func (c *azureClient) getProxySession(proxyURL string) *azuretls.Session {
+	c.proxyMu.Lock()
+	defer c.proxyMu.Unlock()
+
+	if sess, ok := c.proxySessions[proxyURL]; ok {
+		return sess
+	}
+
+	var browser string
+	switch c.profile {
+	case ProfileFirefox:
+		browser = azuretls.Firefox
+	default:
+		browser = azuretls.Chrome
+	}
+	sess := azuretls.NewSession()
+	sess.Browser = browser
+	if err := sess.SetProxy(proxyURL); err != nil {
+		return nil
+	}
+	c.proxySessions[proxyURL] = sess
+	return sess
+}
+
 func (c *azureClient) Close() error {
 	c.session.Close()
+	c.proxyMu.Lock()
+	for _, sess := range c.proxySessions {
+		sess.Close()
+	}
+	c.proxyMu.Unlock()
 	return nil
 }
 

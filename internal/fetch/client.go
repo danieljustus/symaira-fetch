@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -22,6 +23,9 @@ func ParseProfile(s string) Profile {
 	case "honest":
 		return ProfileHonest
 	default:
+		if s != "" && s != "chrome" {
+			slog.Warn("unknown profile, defaulting to chrome", "profile", s)
+		}
 		return ProfileChrome
 	}
 }
@@ -66,7 +70,6 @@ type clientOptions struct {
 	proxy          string
 	timeoutSeconds int
 	maxBodyMB      int
-	sessionsDir    string
 	enableRetry    bool
 	backoffConfig  BackoffConfig
 	rateLimiter    *HostRateLimiter
@@ -85,11 +88,6 @@ func WithTimeout(seconds int) Option {
 // WithMaxBody sets the default maximum response body size in MB.
 func WithMaxBody(mb int) Option {
 	return func(o *clientOptions) { o.maxBodyMB = mb }
-}
-
-// WithSessionsDir sets the directory for persistent named cookie jars.
-func WithSessionsDir(dir string) Option {
-	return func(o *clientOptions) { o.sessionsDir = dir }
 }
 
 // WithRetry enables automatic retry with exponential backoff for transient errors.
