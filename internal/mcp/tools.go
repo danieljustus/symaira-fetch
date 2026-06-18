@@ -174,7 +174,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 			concurrency = c
 		}
 
-		pool := batch.Pool{Workers: concurrency, PerHost: 2}
+		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: batch.NewAdaptivePool(2, 8)}
 		results := pool.RunBatch(ctx, client, eng, items, pipeline.Options{
 			Format:   format,
 			MaxChars: maxChars,
