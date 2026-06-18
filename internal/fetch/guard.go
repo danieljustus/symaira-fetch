@@ -32,6 +32,14 @@ func (e *ErrBlockedPrivate) Error() string {
 // dialer, preventing DNS-rebinding attacks where the first resolution
 // returns a public IP that passes the check but the second (used for the
 // actual connection) resolves to a private IP.
+var ssrfResolver = &net.Resolver{
+	PreferGo: true,
+	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialer := &net.Dialer{Control: controlSSRF}
+		return dialer.DialContext(ctx, network, address)
+	},
+}
+
 func checkSSRF(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -54,14 +62,7 @@ func checkSSRF(rawURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			dialer := &net.Dialer{Control: controlSSRF}
-			return dialer.DialContext(ctx, network, address)
-		},
-	}
-	ips, err := resolver.LookupHost(ctx, host)
+	ips, err := ssrfResolver.LookupHost(ctx, host)
 	if err != nil {
 		// DNS failure is not inherently an SSRF — the connection will fail.
 		return nil
@@ -93,6 +94,14 @@ func controlSSRF(network, address string, c syscall.RawConn) error {
 	return nil
 }
 
+// ipv4MappedNet covers the ::ffff:0:0/96 range used to detect
+// IPv4-mapped IPv6 addresses. It is checked separately because the
+// /96 prefix matches all IPv4 addresses when applied to 4-byte IPs.
+var ipv4MappedNet = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("::ffff:0:0/96")
+	return n
+}()
+
 var privateRanges = func() []*net.IPNet {
 	cidrs := []string{
 		"127.0.0.0/8",
@@ -123,6 +132,9 @@ func isPrivate(ip net.IP) bool {
 		if n.Contains(ip) {
 			return true
 		}
+	}
+	if len(ip) == net.IPv6len && ipv4MappedNet.Contains(ip) {
+		return isPrivate(ip[12:16])
 	}
 	return false
 }
