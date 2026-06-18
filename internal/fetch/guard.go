@@ -93,6 +93,14 @@ func controlSSRF(network, address string, c syscall.RawConn) error {
 	return nil
 }
 
+// ipv4MappedNet covers the ::ffff:0:0/96 range used to detect
+// IPv4-mapped IPv6 addresses. It is checked separately because the
+// /96 prefix matches all IPv4 addresses when applied to 4-byte IPs.
+var ipv4MappedNet = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("::ffff:0:0/96")
+	return n
+}()
+
 var privateRanges = func() []*net.IPNet {
 	cidrs := []string{
 		"127.0.0.0/8",
@@ -123,6 +131,9 @@ func isPrivate(ip net.IP) bool {
 		if n.Contains(ip) {
 			return true
 		}
+	}
+	if len(ip) == net.IPv6len && ipv4MappedNet.Contains(ip) {
+		return isPrivate(ip[12:16])
 	}
 	return false
 }
