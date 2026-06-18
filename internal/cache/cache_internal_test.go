@@ -68,7 +68,7 @@ func TestScanCache_WithEntries(t *testing.T) {
 		url := "https://example.com/page" + string(rune('A'+i))
 		body := []byte("body content " + string(rune('A'+i)))
 		meta := Meta{StatusCode: 200}
-		if err := c.Put(url, "chrome", "markdown", body, meta); err != nil {
+		if err := c.Put(url, "chrome", "markdown", "", body, meta); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
@@ -89,7 +89,7 @@ func TestScanCache_CorruptMetaSkipped(t *testing.T) {
 	// Add a valid entry
 	body := []byte("valid body")
 	meta := Meta{StatusCode: 200}
-	c.Put("https://example.com/valid", "chrome", "markdown", body, meta)
+	c.Put("https://example.com/valid", "chrome", "markdown", "", body, meta)
 
 	// Manually create a corrupt meta file
 	subdir := filepath.Join(dir, "ab") // assuming key starts with "ab"
@@ -110,7 +110,7 @@ func TestScanCache_MissingBodySkipped(t *testing.T) {
 	// Add a valid entry
 	body := []byte("valid body")
 	meta := Meta{StatusCode: 200}
-	c.Put("https://example.com/valid", "chrome", "markdown", body, meta)
+	c.Put("https://example.com/valid", "chrome", "markdown", "", body, meta)
 
 	// Manually create a meta file without corresponding body
 	key := c.key("https://example.com/orphan", "chrome", "markdown", "")
