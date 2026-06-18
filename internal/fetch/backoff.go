@@ -160,6 +160,7 @@ type HostRateLimiter struct {
 	mu         sync.Mutex
 	breakers   map[string]*CircuitBreaker
 	config     CircuitBreakerConfig
+	lastCleanup time.Time
 }
 
 // NewHostRateLimiter creates a new per-host rate limiter.
@@ -183,6 +184,9 @@ func extractHost(rawURL string) string {
 func (hrl *HostRateLimiter) Allow(rawURL string) bool {
 	host := extractHost(rawURL)
 	hrl.mu.Lock()
+	if len(hrl.breakers) > 1000 && time.Since(hrl.lastCleanup) > 5*time.Minute {
+		hrl.cleanupStaleLocked(30 * time.Minute)
+	}
 	breaker, ok := hrl.breakers[host]
 	if !ok {
 		breaker = NewCircuitBreaker(hrl.config)
@@ -210,6 +214,28 @@ func (hrl *HostRateLimiter) RecordFailure(rawURL string) {
 		breaker.RecordFailure()
 	}
 	hrl.mu.Unlock()
+}
+
+// CleanupStale removes circuit breakers that are closed and whose last
+// failure is older than maxAge. Call periodically from long-lived
+// processes to bound the breakers map size.
+func (hrl *HostRateLimiter) CleanupStale(maxAge time.Duration) {
+	hrl.mu.Lock()
+	defer hrl.mu.Unlock()
+	hrl.cleanupStaleLocked(maxAge)
+}
+
+func (hrl *HostRateLimiter) cleanupStaleLocked(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for host, cb := range hrl.breakers {
+		cb.mu.Lock()
+		stale := cb.state == CircuitClosed && !cb.lastFailure.IsZero() && cb.lastFailure.Before(cutoff)
+		cb.mu.Unlock()
+		if stale {
+			delete(hrl.breakers, host)
+		}
+	}
+	hrl.lastCleanup = time.Now()
 }
 
 // IsTransientError checks if an error is transient and should be retried.
