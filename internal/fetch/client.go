@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -22,6 +23,9 @@ func ParseProfile(s string) Profile {
 	case "honest":
 		return ProfileHonest
 	default:
+		if s != "" && s != "chrome" {
+			slog.Warn("unknown profile, defaulting to chrome", "profile", s)
+		}
 		return ProfileChrome
 	}
 }
