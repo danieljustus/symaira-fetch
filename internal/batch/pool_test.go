@@ -64,9 +64,13 @@ func TestPoolOrderPreserved(t *testing.T) {
 	c := newTestClient(t)
 	pool := batch.Pool{Workers: 3}
 	results := pool.RunBatch(context.Background(), c, pipeline.StaticEngine{}, items, pipeline.Options{
-		Format:       pipeline.FormatText,
-		MaxChars:     5000,
-		AllowPrivate: true,
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 5000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 
 	if len(results) != len(items) {
@@ -99,9 +103,13 @@ func TestPoolBadURLDoesNotBlockOthers(t *testing.T) {
 	c := newTestClient(t)
 	pool := batch.Pool{Workers: 3}
 	results := pool.RunBatch(context.Background(), c, pipeline.StaticEngine{}, items, pipeline.Options{
-		Format:       pipeline.FormatText,
-		MaxChars:     5000,
-		AllowPrivate: true,
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 5000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 
 	if len(results) != 3 {
@@ -133,9 +141,13 @@ func TestPoolContextCancellation(t *testing.T) {
 
 	// Should not hang — just return (possibly with errors)
 	results := pool.RunBatch(ctx, c, pipeline.StaticEngine{}, items, pipeline.Options{
-		Format:       pipeline.FormatText,
-		MaxChars:     5000,
-		AllowPrivate: true,
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 5000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 
 	if len(results) != 2 {

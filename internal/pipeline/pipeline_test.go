@@ -45,9 +45,13 @@ func TestPipelineNewsArticle(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -74,9 +78,13 @@ func TestPipelineNextJSDataIsland(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,9 +114,13 @@ func TestPipelineFormPage(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -154,10 +166,14 @@ func TestPipelineTinyPageFallback(t *testing.T) {
 
 	// charThreshold > content → should trigger fallback and still return something
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:        pipeline.FormatMarkdown,
-		MaxChars:      20000,
-		CharThreshold: 500, // way above actual content
-		AllowPrivate:  true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			CharThreshold: 500, // way above actual content
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -174,9 +190,13 @@ func TestPipelineNavHeavy(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,9 +214,13 @@ func TestPipelineJSONFormat(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatJSON,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatJSON,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -216,9 +240,13 @@ func TestPipelineTextFormat(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatText,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -237,9 +265,13 @@ func TestPipelineMaxCharsTruncation(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatText,
-		MaxChars:     50,
-		AllowPrivate: true,
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 50,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -260,8 +292,10 @@ func TestPipelineHTTP404(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	_, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error for 404 response")
@@ -287,9 +321,13 @@ func TestPipeline_ISO8859_1(t *testing.T) {
 	eng := pipeline.StaticEngine{}
 
 	res, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
-		Format:       pipeline.FormatMarkdown,
-		MaxChars:     20000,
-		AllowPrivate: true,
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

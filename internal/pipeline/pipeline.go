@@ -44,33 +44,46 @@ func ParseFormat(s string) Format {
 
 // Options configures the pipeline run.
 type Options struct {
-	Format         Format
+	Format   Format
+	Content  ContentOptions
+	Cache    CacheOptions
+	Profile  string
+	Session  string
+	Security SecurityOptions
+}
+
+// ContentOptions controls content extraction limits and scoring.
+type ContentOptions struct {
 	MaxChars       int  // character budget for content output
 	IncludeLinks   bool
 	CharThreshold  int  // minimum chars for content scoring; below this triggers retry
 	MaxIslandBytes int  // max size of a single data island
-	AllowPrivate   bool
+}
 
+// CacheOptions controls response caching.
+type CacheOptions struct {
 	NoCache  bool
-	CacheDir string
-	CacheTTL time.Duration
-	Cache    *cache.Cache // shared cache instance; when nil, per-call cache is created
-	Profile  string
-	Session  string
+	Dir      string
+	TTL      time.Duration
+	Instance *cache.Cache // shared cache instance; when nil, per-call cache is created
+}
 
+// SecurityOptions controls SSRF protection and robots.txt compliance.
+type SecurityOptions struct {
+	AllowPrivate  bool
 	Robots        bool
 	RobotsChecker *robots.Checker
 }
 
 func (o *Options) setDefaults() {
-	if o.MaxChars <= 0 {
-		o.MaxChars = 20000
+	if o.Content.MaxChars <= 0 {
+		o.Content.MaxChars = 20000
 	}
-	if o.CharThreshold <= 0 {
-		o.CharThreshold = 500
+	if o.Content.CharThreshold <= 0 {
+		o.Content.CharThreshold = 500
 	}
-	if o.MaxIslandBytes <= 0 {
-		o.MaxIslandBytes = o.MaxChars / 4
+	if o.Content.MaxIslandBytes <= 0 {
+		o.Content.MaxIslandBytes = o.Content.MaxChars / 4
 	}
 }
 
@@ -87,15 +100,15 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	o.setDefaults()
 
 	var cacher *cache.Cache
-	if !o.NoCache {
-		if o.Cache != nil {
-			cacher = o.Cache
+	if !o.Cache.NoCache {
+		if o.Cache.Instance != nil {
+			cacher = o.Cache.Instance
 		} else {
-			dir := o.CacheDir
+			dir := o.Cache.Dir
 			if dir == "" {
 				dir = cache.DefaultDir()
 			}
-			ttl := o.CacheTTL
+			ttl := o.Cache.TTL
 			if ttl <= 0 {
 				ttl = 24 * time.Hour
 			}
@@ -119,8 +132,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
-	if o.Robots && o.RobotsChecker != nil {
-		allowed, err := o.RobotsChecker.Check(ctx, "symfetch", rawURL)
+	if o.Security.Robots && o.Security.RobotsChecker != nil {
+		allowed, err := o.Security.RobotsChecker.Check(ctx, "symfetch", rawURL)
 		if err != nil {
 			slog.Debug("robots check error", "url", rawURL, "error", err)
 		} else if !allowed {
@@ -130,7 +143,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 
 	resp, err := c.Fetch(ctx, fetch.Request{
 		URL:          rawURL,
-		AllowPrivate: o.AllowPrivate,
+		AllowPrivate: o.Security.AllowPrivate,
 		Session:      o.Session,
 	})
 	if err != nil {
@@ -147,13 +160,13 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	}
 
 	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
-	rawIslands := semantic.ExtractIslands(tree.Root, o.MaxIslandBytes)
+	rawIslands := semantic.ExtractIslands(tree.Root, o.Content.MaxIslandBytes)
 
 	// 5. Filter DOM
 	dom.Filter(tree.Root)
 
 	// 6. Score and pick best block
-	bestNode := semantic.BestBlock(tree.Root, o.CharThreshold)
+	bestNode := semantic.BestBlock(tree.Root, o.Content.CharThreshold)
 
 	// 7. Build agentdom
 	doc := &agentdom.Document{
@@ -163,7 +176,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		Lang:     tree.Lang,
 	}
 
-	builder := agentdom.NewBuilder(o.MaxChars)
+	builder := agentdom.NewBuilder(o.Content.MaxChars)
 	builder.Build(bestNode, doc)
 
 	// Convert islands
@@ -186,14 +199,14 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	case FormatHTML:
 		output = rawHTMLFallback(resp.Body)
 	default:
-		output, err = render.Markdown(doc, bestNode, o.IncludeLinks)
+		output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
 		if err != nil {
 			return nil, &RenderError{Format: "markdown", Err: err}
 		}
 	}
 
 	charCount := utf8.RuneCountInString(output)
-	truncated := charCount >= o.MaxChars
+	truncated := charCount >= o.Content.MaxChars
 
 	meta := agentdom.Meta{
 		FinalURL:   resp.FinalURL,

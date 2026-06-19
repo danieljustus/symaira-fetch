@@ -48,16 +48,16 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 		perHost = defaultPerHost
 	}
 
-	if !opts.NoCache && opts.Cache == nil {
-		dir := opts.CacheDir
+	if !opts.Cache.NoCache && opts.Cache.Instance == nil {
+		dir := opts.Cache.Dir
 		if dir == "" {
 			dir = cache.DefaultDir()
 		}
-		ttl := opts.CacheTTL
+		ttl := opts.Cache.TTL
 		if ttl <= 0 {
 			ttl = 24 * time.Hour
 		}
-		opts.Cache = cache.New(dir, ttl)
+		opts.Cache.Instance = cache.New(dir, ttl)
 	}
 
 	results := make([]Result, len(items))
