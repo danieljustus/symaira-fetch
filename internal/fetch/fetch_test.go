@@ -151,16 +151,16 @@ func TestSSRFGuard(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := checkSSRF(tt.url)
+		err := CheckSSRF(tt.url)
 		isBlocked := err != nil
 		if isBlocked != tt.blocked {
-			t.Errorf("checkSSRF(%q): blocked=%v, want %v (err=%v)", tt.url, isBlocked, tt.blocked, err)
+			t.Errorf("CheckSSRF(%q): blocked=%v, want %v (err=%v)", tt.url, isBlocked, tt.blocked, err)
 		}
 	}
 
-	err := checkSSRF("https://example.com/")
+	err := CheckSSRF("https://example.com/")
 	if err != nil {
-		t.Logf("checkSSRF(\"https://example.com/\"): DNS resolution failed (expected in restricted networks): %v", err)
+		t.Logf("CheckSSRF(\"https://example.com/\"): DNS resolution failed (expected in restricted networks): %v", err)
 	}
 }
 
