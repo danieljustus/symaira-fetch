@@ -184,6 +184,7 @@ func extractHost(rawURL string) string {
 func (hrl *HostRateLimiter) Allow(rawURL string) bool {
 	host := extractHost(rawURL)
 	hrl.mu.Lock()
+	defer hrl.mu.Unlock()
 	if len(hrl.breakers) > 1000 && time.Since(hrl.lastCleanup) > 5*time.Minute {
 		hrl.cleanupStaleLocked(30 * time.Minute)
 	}
@@ -192,7 +193,6 @@ func (hrl *HostRateLimiter) Allow(rawURL string) bool {
 		breaker = NewCircuitBreaker(hrl.config)
 		hrl.breakers[host] = breaker
 	}
-	hrl.mu.Unlock()
 	return breaker.Allow()
 }
 
