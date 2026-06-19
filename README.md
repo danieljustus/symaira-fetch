@@ -15,6 +15,15 @@ Symaira Fetch solves this by:
 1. **Simulating real browser TLS and HTTP/2 handshakes** (Chrome/Firefox JA4/JA3) to bypass basic Cloudflare/Akamai bot walls without launching a browser.
 2. **Filtering the DOM semantically** before converting to Markdown, reducing LLM token context usage by up to 80% while retaining structure and data islands (`__NEXT_DATA__`, JSON-LD).
 
+## Architecture
+
+```
+URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content Scoring ──▶ 8-Category ──▶ TokenCompressor ──▶ Markdown/JSON
+         (Chrome/Firefox    Fetch   (safe tags,     (text density,     Classification   (semantic,        (LLM-optimized)
+          JA4/HTTP2)               remove junk)     link density,      (article, nav,    token-aware)
+                                                      island detect)    code, data, ...)
+```
+
 ## Features
 
 - **Browser-impersonating TLS** — Chrome/Firefox JA4/HTTP2 fingerprints via [azuretls](https://github.com/Noooste/azuretls-client)
