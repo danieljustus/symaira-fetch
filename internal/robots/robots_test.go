@@ -261,6 +261,7 @@ Allow: /admin/public/
 	defer srv.Close()
 
 	c := NewChecker()
+	c.private = true
 	ctx := context.Background()
 
 	allowed, err := c.Check(ctx, "TestBot", srv.URL+"/index.html")
@@ -297,6 +298,7 @@ func TestCheckerCacheTTL(t *testing.T) {
 	defer srv.Close()
 
 	c := NewChecker()
+	c.private = true
 	c.ttl = 50 * time.Millisecond
 	ctx := context.Background()
 
@@ -321,6 +323,7 @@ func TestChecker404(t *testing.T) {
 	defer srv.Close()
 
 	c := NewChecker()
+	c.private = true
 	ctx := context.Background()
 
 	allowed, err := c.Check(ctx, "Bot", srv.URL+"/anything")
@@ -340,8 +343,8 @@ func TestCheckerFailOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed {
-		t.Error("unreachable server should fail-open (allow)")
+	if allowed {
+		t.Error("private address should be blocked by SSRF guard")
 	}
 }
 
@@ -367,6 +370,7 @@ Disallow: /`
 	defer srv.Close()
 
 	c := NewChecker()
+	c.private = true
 	ctx := context.Background()
 
 	allowed, err := c.Check(ctx, "Bot", srv.URL)

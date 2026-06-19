@@ -127,18 +127,24 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 
 			eng := pipeline.StaticEngine{}
 			opts := pipeline.Options{
-				Format:       pipeline.ParseFormat(format),
-				MaxChars:     maxChars,
-				IncludeLinks: flagLinks,
-				NoCache:      noCache,
-				CacheDir:     cfg.Cache.Dir,
-				CacheTTL:     cacheTTL,
-				Profile:      profile,
-				Session:      flagSession,
-				Robots:       flagRobots,
+				Format: pipeline.ParseFormat(format),
+				Content: pipeline.ContentOptions{
+					MaxChars:     maxChars,
+					IncludeLinks: flagLinks,
+				},
+				Cache: pipeline.CacheOptions{
+					NoCache: noCache,
+					Dir:     cfg.Cache.Dir,
+					TTL:     cacheTTL,
+				},
+				Profile: profile,
+				Session: flagSession,
+				Security: pipeline.SecurityOptions{
+					Robots: flagRobots,
+				},
 			}
 			if flagRobots {
-				opts.RobotsChecker = robots.NewChecker()
+				opts.Security.RobotsChecker = robots.NewChecker()
 			}
 
 		ctx := context.Background()

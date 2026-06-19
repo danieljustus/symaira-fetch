@@ -20,18 +20,6 @@ func (e *ErrBlockedPrivate) Error() string {
 	return fmt.Sprintf("blocked_private: %s targets a private or loopback address", e.URL)
 }
 
-// checkSSRF returns an error if the URL targets a blocked address.
-// It blocks:
-//   - non-http(s) schemes
-//   - loopback (127.0.0.0/8, ::1)
-//   - link-local (169.254.0.0/16, fe80::/10)
-//   - RFC-1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-//   - IPv4-mapped IPv6 (::ffff:0:0/96)
-//
-// The check happens at TCP connection time via a Control function on the
-// dialer, preventing DNS-rebinding attacks where the first resolution
-// returns a public IP that passes the check but the second (used for the
-// actual connection) resolves to a private IP.
 var ssrfResolver = &net.Resolver{
 	PreferGo: true,
 	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -40,7 +28,10 @@ var ssrfResolver = &net.Resolver{
 	},
 }
 
-func checkSSRF(rawURL string) error {
+// CheckSSRF returns an error if the URL targets a blocked private/loopback
+// address. It is used by the robots package to apply the same SSRF protection
+// to robots.txt fetches.
+func CheckSSRF(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)

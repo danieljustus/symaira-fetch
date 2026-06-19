@@ -5,6 +5,7 @@ package robots
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
 )
 
 // DefaultTTL is the cache lifetime for a domain's robots.txt rules.
@@ -35,18 +38,19 @@ type cacheEntry struct {
 // Checker fetches and caches robots.txt rules per domain, then checks
 // whether a given URL is allowed for a specific user-agent.
 type Checker struct {
-	mu     sync.RWMutex
-	cache  map[string]*cacheEntry
-	ttl    time.Duration
-	client *http.Client
+	mu      sync.RWMutex
+	cache   map[string]*cacheEntry
+	ttl     time.Duration
+	client  *http.Client
+	private bool
 }
 
 func NewChecker() *Checker {
 	// robots.txt is fetched with plain net/http rather than the browser-impersonating
 	// TLS client because robots.txt is a well-known, non-sensitive resource that
-	// sites expect to be fetched by any HTTP client. The SSRF guard is also bypassed
-	// here since robots.txt is fetched from the same domain as the target URL — the
-	// main fetch will still be blocked by the SSRF guard if the target is private.
+	// sites expect to be fetched by any HTTP client. The SSRF guard is applied here
+	// to prevent robots.txt fetches from being used to probe private networks via
+	// DNS rebinding (public resolution on first lookup, private on second).
 	return &Checker{
 		cache: make(map[string]*cacheEntry),
 		ttl:   DefaultTTL,
@@ -72,6 +76,10 @@ func (c *Checker) Check(ctx context.Context, userAgent, rawURL string) (bool, er
 	domain := u.Scheme + "://" + u.Host
 	groups, err := c.groupsForDomain(ctx, domain)
 	if err != nil {
+		var blocked *fetch.ErrBlockedPrivate
+		if errors.As(err, &blocked) {
+			return false, nil
+		}
 		return true, nil
 	}
 
@@ -95,6 +103,13 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 	}
 
 	robotsURL := domain + "/robots.txt"
+
+	if !c.private {
+		if err := fetch.CheckSSRF(robotsURL); err != nil {
+			return nil, err
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, robotsURL, nil)
 	if err != nil {
 		return nil, err

@@ -113,9 +113,11 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		}
 
 		res, err := pipeline.Run(fetchCtx, client, eng, rawURL, pipeline.Options{
-			Format:       format,
-			MaxChars:     maxChars,
-			IncludeLinks: includeLinks,
+			Format: format,
+			Content: pipeline.ContentOptions{
+				MaxChars:     maxChars,
+				IncludeLinks: includeLinks,
+			},
 		})
 		if err != nil {
 			return nil, categoriseError(err)
@@ -177,8 +179,10 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 
 		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: batch.NewAdaptivePool(2, 8)}
 		results := pool.RunBatch(ctx, client, eng, items, pipeline.Options{
-			Format:   format,
-			MaxChars: maxChars,
+			Format: format,
+			Content: pipeline.ContentOptions{
+				MaxChars: maxChars,
+			},
 		})
 
 		type jsonResult struct {

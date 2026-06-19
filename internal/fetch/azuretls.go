@@ -47,7 +47,7 @@ func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
 
 func (c *azureClient) Fetch(ctx context.Context, req Request) (*Response, error) {
 	if !req.AllowPrivate {
-		if err := checkSSRF(req.URL); err != nil {
+		if err := CheckSSRF(req.URL); err != nil {
 			return nil, err
 		}
 	}

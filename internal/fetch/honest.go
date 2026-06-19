@@ -54,7 +54,7 @@ func newHonestClient(o *clientOptions) (*honestClient, error) {
 
 func (c *honestClient) Fetch(ctx context.Context, req Request) (*Response, error) {
 	if !req.AllowPrivate {
-		if err := checkSSRF(req.URL); err != nil {
+		if err := CheckSSRF(req.URL); err != nil {
 			return nil, err
 		}
 	}
