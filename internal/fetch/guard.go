@@ -23,8 +23,11 @@ func (e *ErrBlockedPrivate) Error() string {
 var ssrfResolver = &net.Resolver{
 	PreferGo: true,
 	Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-		dialer := &net.Dialer{Control: controlSSRF}
-		return dialer.DialContext(ctx, network, address)
+		// The configured DNS resolver can legitimately be on a private or
+		// loopback address (for example, a local VPN or router resolver).
+		// SSRF protection applies to resolved request targets below, not to
+		// the system resolver used to look them up.
+		return (&net.Dialer{}).DialContext(ctx, network, address)
 	},
 }
 
