@@ -14,11 +14,11 @@ func TestEvictIfOverSize_NoEviction(t *testing.T) {
 
 	body := []byte("small")
 	meta := Meta{StatusCode: 200}
-	c.Put("https://example.com", "chrome", "markdown", "", body, meta)
+	c.Put("https://example.com", "chrome", "markdown", "", "", body, meta)
 
 	c.evictIfOverSize()
 
-	_, _, ok := c.Get("https://example.com", "chrome", "markdown", "")
+	_, _, ok := c.Get("https://example.com", "chrome", "markdown", "", "")
 	if !ok {
 		t.Error("expected entry to still exist after eviction check")
 	}
@@ -33,7 +33,7 @@ func TestEvictIfOverSize_EvictsOldest(t *testing.T) {
 		url := "https://example.com/page" + string(rune('A'+i))
 		body := make([]byte, 100)
 		meta := Meta{StatusCode: 200, StoredAt: time.Now().Add(-time.Duration(i) * time.Hour)}
-		c.Put(url, "chrome", "markdown", "", body, meta)
+		c.Put(url, "chrome", "markdown", "", "", body, meta)
 	}
 
 	// Reset the eviction debounce so the explicit call below is not skipped.
@@ -68,7 +68,7 @@ func TestScanCache_WithEntries(t *testing.T) {
 		url := "https://example.com/page" + string(rune('A'+i))
 		body := []byte("body content " + string(rune('A'+i)))
 		meta := Meta{StatusCode: 200}
-		if err := c.Put(url, "chrome", "markdown", "", body, meta); err != nil {
+		if err := c.Put(url, "chrome", "markdown", "", "", body, meta); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
@@ -89,7 +89,7 @@ func TestScanCache_CorruptMetaSkipped(t *testing.T) {
 	// Add a valid entry
 	body := []byte("valid body")
 	meta := Meta{StatusCode: 200}
-	c.Put("https://example.com/valid", "chrome", "markdown", "", body, meta)
+	c.Put("https://example.com/valid", "chrome", "markdown", "", "", body, meta)
 
 	// Manually create a corrupt meta file
 	subdir := filepath.Join(dir, "ab") // assuming key starts with "ab"
@@ -110,10 +110,10 @@ func TestScanCache_MissingBodySkipped(t *testing.T) {
 	// Add a valid entry
 	body := []byte("valid body")
 	meta := Meta{StatusCode: 200}
-	c.Put("https://example.com/valid", "chrome", "markdown", "", body, meta)
+	c.Put("https://example.com/valid", "chrome", "markdown", "", "", body, meta)
 
 	// Manually create a meta file without corresponding body
-	key := c.key("https://example.com/orphan", "chrome", "markdown", "")
+	key := c.key("https://example.com/orphan", "chrome", "markdown", "", "")
 	subdir := filepath.Join(dir, key[:2])
 	os.MkdirAll(subdir, 0700)
 	metaPath := filepath.Join(subdir, key+".meta.json")

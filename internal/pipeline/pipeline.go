@@ -87,6 +87,13 @@ func (o *Options) setDefaults() {
 	}
 }
 
+// ContentKey returns a deterministic string encoding every option that
+// affects the rendered output so the cache can distinguish requests that
+// would produce different results.
+func (o *ContentOptions) ContentKey() string {
+	return fmt.Sprintf("mc=%d il=%v ct=%d mi=%d", o.MaxChars, o.IncludeLinks, o.CharThreshold, o.MaxIslandBytes)
+}
+
 // Result holds the pipeline output.
 type Result struct {
 	Doc    *agentdom.Document
@@ -127,7 +134,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session); ok {
+		ck := o.Content.ContentKey()
+		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session, ck); ok {
 			if !o.Security.AllowPrivate && meta.FinalURL != "" && meta.FinalURL != rawURL {
 				if err := fetch.CheckSSRF(meta.FinalURL); err != nil {
 					slog.Debug("cache hit blocked by SSRF (redirect target)", "url", rawURL, "finalURL", meta.FinalURL)
@@ -240,7 +248,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, []byte(output), cache.Meta{
+		ck := o.Content.ContentKey()
+		if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(output), cache.Meta{
 			URL:         rawURL,
 			FinalURL:    resp.FinalURL,
 			StatusCode:  resp.StatusCode,

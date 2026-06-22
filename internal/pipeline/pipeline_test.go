@@ -441,7 +441,7 @@ func TestPipelineCachedPrivateURLBlocked(t *testing.T) {
 	cacher := cache.New(tmpDir, 1*time.Hour)
 
 	privateURL := "http://127.0.0.1:9999/secret"
-	cacher.Put(privateURL, "chrome", "markdown", "", []byte("secret content"), cache.Meta{
+	cacher.Put(privateURL, "chrome", "markdown", "", "", []byte("secret content"), cache.Meta{
 		URL:      privateURL,
 		FinalURL: "http://127.0.0.1:9999/secret",
 	})
@@ -469,7 +469,7 @@ func TestPipelineCachedPrivateRedirectBlocked(t *testing.T) {
 
 	publicURL := "http://example.com/page"
 	privateRedirect := "http://127.0.0.1:9999/admin"
-	cacher.Put(publicURL, "chrome", "markdown", "", []byte("redirected content"), cache.Meta{
+	cacher.Put(publicURL, "chrome", "markdown", "", "", []byte("redirected content"), cache.Meta{
 		URL:      publicURL,
 		FinalURL: privateRedirect,
 	})
@@ -532,5 +532,128 @@ func TestPipelineSSRFBeforeCacheLookup(t *testing.T) {
 	var blockedErr *fetch.ErrBlockedPrivate
 	if !errors.As(err, &blockedErr) {
 		t.Errorf("expected ErrBlockedPrivate, got %T: %v", err, err)
+	}
+}
+
+func longArticleHTML() string {
+	body := "<p>Paragraph one with some content. </p>"
+	for i := 0; i < 50; i++ {
+		body += "<p>This is paragraph " + strings.Repeat("x", 20) + " with enough text to exceed a small character budget. </p>"
+	}
+	return `<!DOCTYPE html><html><head><title>Long Article</title></head><body>
+<article>` + body + `</article></body></html>`
+}
+
+func linkArticleHTML() string {
+	return `<!DOCTYPE html><html><head><title>Link Article</title></head><body>
+<article>
+<p>Paragraph about our products and services.</p>
+<div><a href="/guide">Complete Guide</a></div>
+<div><a href="/faq">FAQ</a></div>
+<div><a href="/about">About Us</a></div>
+<p>Additional paragraphs with enough content to fill the output.</p>
+<p>More text here to give the builder room to process all elements.</p>
+</article></body></html>`
+}
+
+func TestPipelineCacheDifferentMaxCharsDontShare(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(longArticleHTML()))
+	}))
+	t.Cleanup(srv.Close)
+
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	small, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 50,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	large, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format: pipeline.FormatText,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	smallLen := utf8.RuneCountInString(small.Output)
+	largeLen := utf8.RuneCountInString(large.Output)
+	if smallLen >= largeLen {
+		t.Errorf("expected small max_chars output (%d chars) to be shorter than large (%d chars)", smallLen, largeLen)
+	}
+}
+
+func TestPipelineCacheLinksDisabledThenEnabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(linkArticleHTML()))
+	}))
+	t.Cleanup(srv.Close)
+
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	noLinks, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:     20000,
+			IncludeLinks: false,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	withLinks, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:     20000,
+			IncludeLinks: true,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if noLinks.Output == withLinks.Output {
+		t.Error("expected different output when include_links toggles")
 	}
 }
