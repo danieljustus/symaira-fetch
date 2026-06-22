@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,7 +48,28 @@ func New(dir string, ttl time.Duration) *Cache {
 	ensureCacheDir(dir)
 	im := newIndexManager(dir)
 	im.load()
-	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
+	c := &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
+	c.reconcileIndex()
+	return c
+}
+
+// reconcileIndex walks the cache directory and rebuilds the index from
+// actual files on disk, fixing any drift caused by prior-process crashes,
+// manual deletion, or incomplete writes.
+func (c *Cache) reconcileIndex() {
+	diskSize, diskEntries := c.scanCache()
+
+	entries := make([]indexEntry, len(diskEntries))
+	for i, e := range diskEntries {
+		entries[i] = indexEntry{
+			Key:      e.key,
+			Size:     e.size,
+			StoredAt: e.storedAt,
+		}
+	}
+
+	c.indexMgr.rebuild(entries, diskSize)
+	c.indexMgr.save()
 }
 
 // ensureCacheDir creates the cache directory with 0700 permissions
@@ -168,6 +190,7 @@ func (c *Cache) Put(url, profile, format, session, contentKey string, body []byt
 
 	entrySize := int64(len(body)) + int64(len(metaData))
 	c.indexMgr.addEntry(k, entrySize, meta.StoredAt)
+	c.indexMgr.save()
 	c.evictIfOverSize()
 	return nil
 }
@@ -225,7 +248,7 @@ func (c *Cache) scanCache() (int64, []cacheEntryInfo) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if filepath.Ext(path) != ".json" {
+		if filepath.Ext(path) != ".json" || !strings.HasSuffix(path, ".meta.json") {
 			return nil
 		}
 

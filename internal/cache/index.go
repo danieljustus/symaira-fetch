@@ -95,9 +95,26 @@ func (im *indexManager) save() error {
 	return nil
 }
 
+// addEntry inserts or updates an index entry. If the key already exists
+// the prior size is subtracted before the new entry is stored, preventing
+// duplicate accounting on overwrite.
 func (im *indexManager) addEntry(key string, size int64, storedAt time.Time) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
+
+	for i, entry := range im.index.Entries {
+		if entry.Key == key {
+			im.index.TotalSize -= entry.Size
+			im.index.Entries[i] = indexEntry{
+				Key:      key,
+				Size:     size,
+				StoredAt: storedAt,
+			}
+			im.index.TotalSize += size
+			im.dirty = true
+			return
+		}
+	}
 
 	im.index.Entries = append(im.index.Entries, indexEntry{
 		Key:      key,
@@ -105,6 +122,17 @@ func (im *indexManager) addEntry(key string, size int64, storedAt time.Time) {
 		StoredAt: storedAt,
 	})
 	im.index.TotalSize += size
+	im.dirty = true
+}
+
+// rebuild replaces the entire index atomically. Used at startup to
+// reconcile the index with the actual files on disk.
+func (im *indexManager) rebuild(entries []indexEntry, totalSize int64) {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+
+	im.index.Entries = entries
+	im.index.TotalSize = totalSize
 	im.dirty = true
 }
 
