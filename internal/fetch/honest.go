@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,14 +17,21 @@ const honestUA = "symfetch/0.1 (+https://github.com/danieljustus/symaira-fetch)"
 
 // honestClient uses stdlib net/http with a plain user-agent.
 type honestClient struct {
-	hc           *http.Client
+	hcSafe       *http.Client // transport with ControlSSRF dial guard + SSRF CheckRedirect
+	hcUnsafe     *http.Client // transport without SSRF dial guard (for AllowPrivate=true)
 	opts         *clientOptions
 	proxyClients map[string]*http.Client
 	proxyMu      sync.Mutex
 }
 
 func newHonestClient(o *clientOptions) (*honestClient, error) {
-	transport := &http.Transport{
+	safeTransport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Control: ControlSSRF,
+		}).DialContext,
+	}
+	unsafeTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 	}
 
@@ -32,21 +40,32 @@ func newHonestClient(o *clientOptions) (*honestClient, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy: %w", err)
 		}
-		transport.Proxy = http.ProxyURL(proxyURL)
+		safeTransport.Proxy = http.ProxyURL(proxyURL)
+		unsafeTransport.Proxy = http.ProxyURL(proxyURL)
 	}
 
-	hc := &http.Client{
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	safeRedirect := func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		if err := CheckSSRF(req.URL.String()); err != nil {
+			return err
+		}
+		return nil
 	}
+	unsafeRedirect := func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		return nil
+	}
+
+	hcSafe := &http.Client{Transport: safeTransport, CheckRedirect: safeRedirect}
+	hcUnsafe := &http.Client{Transport: unsafeTransport, CheckRedirect: unsafeRedirect}
 
 	return &honestClient{
-		hc:           hc,
+		hcSafe:       hcSafe,
+		hcUnsafe:     hcUnsafe,
 		opts:         o,
 		proxyClients: make(map[string]*http.Client),
 	}, nil
@@ -96,34 +115,67 @@ func (c *honestClient) Fetch(ctx context.Context, req Request) (*Response, error
 	defer cancel()
 	httpReq = httpReq.WithContext(timeoutCtx)
 
-	hc := c.hc
+	hc := c.hcUnsafe
 	if req.Proxy != "" {
-		hc = c.getProxyClient(req.Proxy)
+		hc = c.getProxyClient(req.Proxy, req.AllowPrivate)
+	} else if !req.AllowPrivate {
+		hc = c.hcSafe
 	}
 
 	return c.doFetchWithRetry(ctx, req, hc, httpReq, maxBody)
 }
 
-func (c *honestClient) getProxyClient(proxyURL string) *http.Client {
+func (c *honestClient) getProxyClient(proxyURL string, allowPrivate bool) *http.Client {
 	c.proxyMu.Lock()
 	defer c.proxyMu.Unlock()
 
-	if client, ok := c.proxyClients[proxyURL]; ok {
+	key := proxyURL
+	if allowPrivate {
+		key = proxyURL + "?allow-private"
+	}
+	if client, ok := c.proxyClients[key]; ok {
 		return client
 	}
 
 	parsed, err := url.Parse(proxyURL)
 	if err != nil {
-		return c.hc
+		if allowPrivate {
+			return c.hcUnsafe
+		}
+		return c.hcSafe
 	}
+
 	transport := &http.Transport{Proxy: http.ProxyURL(parsed)}
-	client := &http.Client{Transport: transport, CheckRedirect: c.hc.CheckRedirect}
-	c.proxyClients[proxyURL] = client
+	var redirectFn func(req *http.Request, via []*http.Request) error
+	if allowPrivate {
+		redirectFn = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		}
+	} else {
+		transport.DialContext = (&net.Dialer{
+			Control: ControlSSRF,
+		}).DialContext
+		redirectFn = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := CheckSSRF(req.URL.String()); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+	client := &http.Client{Transport: transport, CheckRedirect: redirectFn}
+	c.proxyClients[key] = client
 	return client
 }
 
 func (c *honestClient) Close() error {
-	c.hc.CloseIdleConnections()
+	c.hcSafe.CloseIdleConnections()
+	c.hcUnsafe.CloseIdleConnections()
 	c.proxyMu.Lock()
 	for _, client := range c.proxyClients {
 		client.CloseIdleConnections()

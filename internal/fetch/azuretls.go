@@ -174,6 +174,13 @@ func (c *azureClient) doFetchWithRetry(ctx context.Context, req Request, azReq *
 		if err == nil {
 			proto := detectProto(azResp)
 			resp := processResponse(req.URL, azResp, elapsed, proto)
+
+			if !req.AllowPrivate && resp.FinalURL != req.URL {
+				if ssrfErr := CheckSSRF(resp.FinalURL); ssrfErr != nil {
+					return nil, ssrfErr
+				}
+			}
+
 			if c.opts.rateLimiter != nil {
 				c.opts.rateLimiter.RecordSuccess(req.URL)
 			}

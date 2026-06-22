@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 	"github.com/spf13/cobra"
 )
@@ -350,6 +352,103 @@ func TestRunMultiJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"ok": false`) {
 		t.Errorf("error output should contain ok:false, got: %s", data)
+	}
+}
+
+func TestResolveFetchOptions_DefaultsFromConfig(t *testing.T) {
+	cmd := newRootCmd()
+	if err := cmd.ParseFlags([]string{}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+
+	fo, err := resolveFetchOptions(cmd, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fo.noCache {
+		t.Error("expected noCache false (cache enabled by default)")
+	}
+	if fo.cacheTTL != 15*time.Minute {
+		t.Errorf("expected cacheTTL 15m, got %v", fo.cacheTTL)
+	}
+	if fo.concurrency != 4 {
+		t.Errorf("expected concurrency 4, got %d", fo.concurrency)
+	}
+}
+
+func TestResolveFetchOptions_FlagOverrides(t *testing.T) {
+	cmd := newRootCmd()
+	if err := cmd.ParseFlags([]string{"--no-cache", "--cache-ttl", "1h", "--concurrency", "8"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+
+	fo, err := resolveFetchOptions(cmd, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fo.noCache {
+		t.Error("expected noCache true (flag --no-cache set)")
+	}
+	if fo.cacheTTL != time.Hour {
+		t.Errorf("expected cacheTTL 1h, got %v", fo.cacheTTL)
+	}
+	if fo.concurrency != 8 {
+		t.Errorf("expected concurrency 8, got %d", fo.concurrency)
+	}
+}
+
+func TestResolveFetchOptions_CustomConfigWithoutFlags(t *testing.T) {
+	cmd := newRootCmd()
+	if err := cmd.ParseFlags([]string{}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Cache.Enabled = false
+	cfg.Cache.TTL = 30 * time.Minute
+	cfg.HTTP.Concurrency = 8
+
+	fo, err := resolveFetchOptions(cmd, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fo.noCache {
+		t.Error("expected noCache true (config cache.enabled=false)")
+	}
+	if fo.cacheTTL != 30*time.Minute {
+		t.Errorf("expected cacheTTL 30m, got %v", fo.cacheTTL)
+	}
+	if fo.concurrency != 8 {
+		t.Errorf("expected concurrency 8, got %d", fo.concurrency)
+	}
+}
+
+func TestResolveFetchOptions_FlagsOverrideCustomConfig(t *testing.T) {
+	cmd := newRootCmd()
+	if err := cmd.ParseFlags([]string{"--cache-ttl", "2h", "--concurrency", "16"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Cache.TTL = 30 * time.Minute
+	cfg.HTTP.Concurrency = 8
+
+	fo, err := resolveFetchOptions(cmd, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fo.noCache {
+		t.Error("expected noCache false (--no-cache not set, use config)")
+	}
+	if fo.cacheTTL != 2*time.Hour {
+		t.Errorf("expected cacheTTL 2h, got %v", fo.cacheTTL)
+	}
+	if fo.concurrency != 16 {
+		t.Errorf("expected concurrency 16, got %d", fo.concurrency)
 	}
 }
 

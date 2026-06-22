@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,7 +48,28 @@ func New(dir string, ttl time.Duration) *Cache {
 	ensureCacheDir(dir)
 	im := newIndexManager(dir)
 	im.load()
-	return &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
+	c := &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
+	c.reconcileIndex()
+	return c
+}
+
+// reconcileIndex walks the cache directory and rebuilds the index from
+// actual files on disk, fixing any drift caused by prior-process crashes,
+// manual deletion, or incomplete writes.
+func (c *Cache) reconcileIndex() {
+	diskSize, diskEntries := c.scanCache()
+
+	entries := make([]indexEntry, len(diskEntries))
+	for i, e := range diskEntries {
+		entries[i] = indexEntry{
+			Key:      e.key,
+			Size:     e.size,
+			StoredAt: e.storedAt,
+		}
+	}
+
+	c.indexMgr.rebuild(entries, diskSize)
+	c.indexMgr.save()
 }
 
 // ensureCacheDir creates the cache directory with 0700 permissions
@@ -74,8 +96,15 @@ func DefaultDir() string {
 	return filepath.Join(home, ".cache", "symfetch")
 }
 
-func (c *Cache) key(url, profile, format, session string) string {
+// cacheKeyVersion is bumped when the key scheme changes to invalidate
+// incompatible old entries automatically. Bump this whenever the hash
+// input fields change so stale cached results are never served.
+const cacheKeyVersion = "v2"
+
+func (c *Cache) key(url, profile, format, session, contentKey string) string {
 	h := sha256.New()
+	h.Write([]byte(cacheKeyVersion))
+	h.Write([]byte("|"))
 	h.Write([]byte(url))
 	h.Write([]byte("|"))
 	h.Write([]byte(profile))
@@ -83,6 +112,8 @@ func (c *Cache) key(url, profile, format, session string) string {
 	h.Write([]byte(format))
 	h.Write([]byte("|"))
 	h.Write([]byte(session))
+	h.Write([]byte("|"))
+	h.Write([]byte(contentKey))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
@@ -95,11 +126,11 @@ func (c *Cache) metaPath(k string) string {
 }
 
 // Get returns cached body+meta if present and not expired.
-func (c *Cache) Get(url, profile, format, session string) ([]byte, *Meta, bool) {
+func (c *Cache) Get(url, profile, format, session, contentKey string) ([]byte, *Meta, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	k := c.key(url, profile, format, session)
+	k := c.key(url, profile, format, session, contentKey)
 	metaData, err := os.ReadFile(c.metaPath(k))
 	if err != nil {
 		return nil, nil, false
@@ -123,11 +154,11 @@ func (c *Cache) Get(url, profile, format, session string) ([]byte, *Meta, bool) 
 }
 
 // Put stores the body and meta in the cache.
-func (c *Cache) Put(url, profile, format, session string, body []byte, meta Meta) error {
+func (c *Cache) Put(url, profile, format, session, contentKey string, body []byte, meta Meta) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	k := c.key(url, profile, format, session)
+	k := c.key(url, profile, format, session, contentKey)
 	dir := filepath.Join(c.dir, k[:2])
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -159,6 +190,7 @@ func (c *Cache) Put(url, profile, format, session string, body []byte, meta Meta
 
 	entrySize := int64(len(body)) + int64(len(metaData))
 	c.indexMgr.addEntry(k, entrySize, meta.StoredAt)
+	c.indexMgr.save()
 	c.evictIfOverSize()
 	return nil
 }
@@ -216,7 +248,7 @@ func (c *Cache) scanCache() (int64, []cacheEntryInfo) {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if filepath.Ext(path) != ".json" {
+		if filepath.Ext(path) != ".json" || !strings.HasSuffix(path, ".meta.json") {
 			return nil
 		}
 
