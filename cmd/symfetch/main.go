@@ -93,11 +93,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				maxChars = flagMaxChars
 			}
 
-			noCache := flagNoCache
-			cacheTTL, err := time.ParseDuration(flagCacheTTL)
-			if err != nil {
-				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid cache-ttl")
-			}
+		fo, err := resolveFetchOptions(cmd, cfg)
+		if err != nil {
+			return err
+		}
 
 			timeoutSec := cfg.HTTP.TimeoutSeconds
 			if cmd.Flags().Changed("timeout") {
@@ -132,11 +131,11 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 					MaxChars:     maxChars,
 					IncludeLinks: flagLinks,
 				},
-				Cache: pipeline.CacheOptions{
-					NoCache: noCache,
-					Dir:     cfg.Cache.Dir,
-					TTL:     cacheTTL,
-				},
+			Cache: pipeline.CacheOptions{
+				NoCache: fo.noCache,
+				Dir:     cfg.Cache.Dir,
+				TTL:     fo.cacheTTL,
+			},
 				Profile: profile,
 				Session: flagSession,
 				Security: pipeline.SecurityOptions{
@@ -162,9 +161,9 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				return runMultiJSON(ctx, client, eng, args, opts)
 			}
 
-			if len(args) > 1 && flagConcurrency > 1 {
-				return runBatch(ctx, client, eng, args, opts, flagConcurrency)
-			}
+		if len(args) > 1 && fo.concurrency > 1 {
+			return runBatch(ctx, client, eng, args, opts, fo.concurrency)
+		}
 
 		var failCount int
 		for i, rawURL := range args {
@@ -215,6 +214,42 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.AddCommand(newConfigCmd())
 
 	return root
+}
+
+type fetchOptions struct {
+	noCache     bool
+	cacheTTL    time.Duration
+	concurrency int
+}
+
+func resolveFetchOptions(cmd *cobra.Command, cfg *config.Config) (fetchOptions, error) {
+	noCache := !cfg.Cache.Enabled
+	if cmd.Flags().Changed("no-cache") {
+		v, _ := cmd.Flags().GetBool("no-cache")
+		noCache = v
+	}
+
+	cacheTTL := cfg.Cache.TTL
+	if cmd.Flags().Changed("cache-ttl") {
+		v, _ := cmd.Flags().GetString("cache-ttl")
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fetchOptions{}, exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid cache-ttl")
+		}
+		cacheTTL = d
+	}
+
+	concurrency := cfg.HTTP.Concurrency
+	if cmd.Flags().Changed("concurrency") {
+		v, _ := cmd.Flags().GetInt("concurrency")
+		concurrency = v
+	}
+
+	return fetchOptions{
+		noCache:     noCache,
+		cacheTTL:    cacheTTL,
+		concurrency: concurrency,
+	}, nil
 }
 
 func runRaw(ctx context.Context, client fetch.Client, urls []string, method string, headers map[string]string, data string, allowPrivate bool) error {
