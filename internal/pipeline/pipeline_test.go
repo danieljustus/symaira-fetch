@@ -2,14 +2,17 @@ package pipeline_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
@@ -431,4 +434,103 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestPipelineCachedPrivateURLBlocked(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+
+	privateURL := "http://127.0.0.1:9999/secret"
+	cacher.Put(privateURL, "chrome", "markdown", "", []byte("secret content"), cache.Meta{
+		URL:      privateURL,
+		FinalURL: "http://127.0.0.1:9999/secret",
+	})
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, privateURL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: false,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for cached private URL when AllowPrivate=false")
+	}
+}
+
+func TestPipelineCachedPrivateRedirectBlocked(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+
+	publicURL := "http://example.com/page"
+	privateRedirect := "http://127.0.0.1:9999/admin"
+	cacher.Put(publicURL, "chrome", "markdown", "", []byte("redirected content"), cache.Meta{
+		URL:      publicURL,
+		FinalURL: privateRedirect,
+	})
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, publicURL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: false,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for cached public URL with private redirect target when AllowPrivate=false")
+	}
+}
+
+func TestPipelineCachedPrivateURLAllowed(t *testing.T) {
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>private content</body></html>"))
+	}))
+	defer privateSrv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, privateSrv.URL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error with AllowPrivate=true, got: %v", err)
+	}
+}
+
+func TestPipelineSSRFBeforeCacheLookup(t *testing.T) {
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, "http://127.0.0.1:9999/secret", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: false,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for private URL when AllowPrivate=false")
+	}
+	var blockedErr *fetch.ErrBlockedPrivate
+	if !errors.As(err, &blockedErr) {
+		t.Errorf("expected ErrBlockedPrivate, got %T: %v", err, err)
+	}
 }

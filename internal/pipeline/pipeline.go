@@ -99,6 +99,12 @@ type Result struct {
 func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Options) (*Result, error) {
 	o.setDefaults()
 
+	if !o.Security.AllowPrivate {
+		if err := fetch.CheckSSRF(rawURL); err != nil {
+			return nil, err
+		}
+	}
+
 	var cacher *cache.Cache
 	if !o.Cache.NoCache {
 		if o.Cache.Instance != nil {
@@ -114,21 +120,31 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 			}
 			cacher = cache.New(dir, ttl)
 		}
+	}
 
+	if cacher != nil {
 		profile := o.Profile
 		if profile == "" {
 			profile = "chrome"
 		}
 		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session); ok {
-			slog.Debug("cache hit", "url", rawURL)
-			return &Result{
-				Output: string(body),
-				Meta: agentdom.Meta{
-					FinalURL:   meta.FinalURL,
-					StatusCode: meta.StatusCode,
-					Protocol:   meta.Protocol,
-				},
-			}, nil
+			if !o.Security.AllowPrivate && meta.FinalURL != "" && meta.FinalURL != rawURL {
+				if err := fetch.CheckSSRF(meta.FinalURL); err != nil {
+					slog.Debug("cache hit blocked by SSRF (redirect target)", "url", rawURL, "finalURL", meta.FinalURL)
+					cacher = nil
+				}
+			}
+			if cacher != nil {
+				slog.Debug("cache hit", "url", rawURL)
+				return &Result{
+					Output: string(body),
+					Meta: agentdom.Meta{
+						FinalURL:   meta.FinalURL,
+						StatusCode: meta.StatusCode,
+						Protocol:   meta.Protocol,
+					},
+				}, nil
+			}
 		}
 	}
 

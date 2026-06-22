@@ -3,6 +3,7 @@ package fetch
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -179,10 +180,10 @@ func TestControlSSRF(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := controlSSRF(tt.network, tt.address, nil)
+		err := ControlSSRF(tt.network, tt.address, nil)
 		isBlocked := err != nil
 		if isBlocked != tt.blocked {
-			t.Errorf("controlSSRF(%q, %q): blocked=%v, want %v (err=%v)", tt.network, tt.address, isBlocked, tt.blocked, err)
+			t.Errorf("ControlSSRF(%q, %q): blocked=%v, want %v (err=%v)", tt.network, tt.address, isBlocked, tt.blocked, err)
 		}
 	}
 }
@@ -406,5 +407,110 @@ func TestAzureTLSHeaderOrder(t *testing.T) {
 		if ci >= 0 && hi >= 0 && ci == hi {
 			t.Errorf("header %q at same position %d in both clients", h, ci)
 		}
+	}
+}
+
+func TestHonestClientRedirectSSRF(t *testing.T) {
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("private"))
+	}))
+	defer privateSrv.Close()
+
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateSrv.URL, http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.Fetch(context.Background(), Request{
+		URL:          redirectSrv.URL,
+		AllowPrivate: false,
+	})
+	if err == nil {
+		t.Fatal("expected error for redirect to private URL when AllowPrivate=false")
+	}
+	var blocked *ErrBlockedPrivate
+	if !errors.As(err, &blocked) {
+		t.Errorf("expected ErrBlockedPrivate, got %T: %v", err, err)
+	}
+}
+
+func TestHonestClientRedirectSSRF_AllowPrivate(t *testing.T) {
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("private"))
+	}))
+	defer privateSrv.Close()
+
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateSrv.URL, http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	resp, err := c.Fetch(context.Background(), Request{
+		URL:          redirectSrv.URL,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatalf("expected no error with AllowPrivate=true, got: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestHonestClientDialGuardSSRF(t *testing.T) {
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.Fetch(context.Background(), Request{
+		URL:          "http://127.0.0.1:1/nonexistent",
+		AllowPrivate: false,
+	})
+	if err == nil {
+		t.Fatal("expected error for private URL when AllowPrivate=false")
+	}
+	var blocked *ErrBlockedPrivate
+	if !errors.As(err, &blocked) {
+		t.Errorf("expected ErrBlockedPrivate, got %T: %v", err, err)
+	}
+}
+
+func TestControlSSRFWiredIntoTransport(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	resp, err := c.Fetch(context.Background(), Request{
+		URL:          srv.URL,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 }

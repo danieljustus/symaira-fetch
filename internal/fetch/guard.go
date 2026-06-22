@@ -76,9 +76,11 @@ func CheckSSRF(rawURL string) error {
 	return nil
 }
 
-// controlSSRF is a net.Dialer.Control function that rejects connections to
+// ControlSSRF is a net.Dialer.Control function that rejects connections to
 // private/loopback addresses at TCP connect time, preventing DNS-rebinding.
-func controlSSRF(network, address string, c syscall.RawConn) error {
+// It is used by both the honest and azuretls clients to enforce SSRF
+// protection at the TCP layer, independent of any earlier DNS check.
+func ControlSSRF(network, address string, c syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		host = address
