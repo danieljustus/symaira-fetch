@@ -93,10 +93,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				maxChars = flagMaxChars
 			}
 
-		fo, err := resolveFetchOptions(cmd, cfg)
-		if err != nil {
-			return err
-		}
+			fo, err := resolveFetchOptions(cmd, cfg)
+			if err != nil {
+				return err
+			}
 
 			timeoutSec := cfg.HTTP.TimeoutSeconds
 			if cmd.Flags().Changed("timeout") {
@@ -113,12 +113,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			extraHeaders := parseHeaders(flagHeaders)
 
 			p := fetch.ParseProfile(profile)
-	client, err := fetch.New(p,
-		fetch.WithProxy(proxy),
-		fetch.WithTimeout(timeoutSec),
-		fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
-		fetch.WithRetry(true),
-	)
+			client, err := fetch.New(p,
+				fetch.WithProxy(proxy),
+				fetch.WithTimeout(timeoutSec),
+				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
+				fetch.WithRetry(true),
+			)
 			if err != nil {
 				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
 			}
@@ -131,11 +131,11 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 					MaxChars:     maxChars,
 					IncludeLinks: flagLinks,
 				},
-			Cache: pipeline.CacheOptions{
-				NoCache: fo.noCache,
-				Dir:     cfg.Cache.Dir,
-				TTL:     fo.cacheTTL,
-			},
+				Cache: pipeline.CacheOptions{
+					NoCache: fo.noCache,
+					Dir:     cfg.Cache.Dir,
+					TTL:     fo.cacheTTL,
+				},
 				Profile: profile,
 				Session: flagSession,
 				Security: pipeline.SecurityOptions{
@@ -146,16 +146,16 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				opts.Security.RobotsChecker = robots.NewChecker()
 			}
 
-	ctx := context.Background()
-	allowPrivate := flagAllowPriv || cfg.Security.AllowPrivate
+			ctx := context.Background()
+			allowPrivate := flagAllowPriv || cfg.Security.AllowPrivate
 
-	opts.Security.AllowPrivate = allowPrivate
+			opts.Security.AllowPrivate = allowPrivate
 
-	if allowPrivate {
-			fmt.Fprintf(os.Stderr, "warning: SSRF guard disabled — fetching private/loopback addresses is permitted\n")
-		}
+			if allowPrivate {
+				fmt.Fprintf(os.Stderr, "warning: SSRF guard disabled — fetching private/loopback addresses is permitted\n")
+			}
 
-		if flagRaw {
+			if flagRaw {
 				return runRaw(ctx, client, args, flagMethod, extraHeaders, flagData, allowPrivate)
 			}
 
@@ -163,34 +163,34 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				return runMultiJSON(ctx, client, eng, args, opts)
 			}
 
-		if len(args) > 1 && fo.concurrency > 1 {
-			return runBatch(ctx, client, eng, args, opts, fo.concurrency)
-		}
+			if len(args) > 1 && fo.concurrency > 1 {
+				return runBatch(ctx, client, eng, args, opts, fo.concurrency)
+			}
 
-		var failCount int
-		for i, rawURL := range args {
-			if i > 0 {
-				fmt.Print("\n---\n\n")
-			}
-			res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
-				failCount++
-				continue
-			}
-			if opts.Format == pipeline.FormatMarkdown {
-				printMarkdownResult(res)
-			} else {
-				fmt.Print(res.Output)
-				if !strings.HasSuffix(res.Output, "\n") {
-					fmt.Println()
+			var failCount int
+			for i, rawURL := range args {
+				if i > 0 {
+					fmt.Print("\n---\n\n")
+				}
+				res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
+					failCount++
+					continue
+				}
+				if opts.Format == pipeline.FormatMarkdown {
+					printMarkdownResult(res)
+				} else {
+					fmt.Print(res.Output)
+					if !strings.HasSuffix(res.Output, "\n") {
+						fmt.Println()
+					}
 				}
 			}
-		}
-		if failCount > 0 {
-			return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(args)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
-		}
-		return nil
+			if failCount > 0 {
+				return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(args)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
+			}
+			return nil
 		},
 	}
 

@@ -157,9 +157,9 @@ func (cb *CircuitBreaker) RecordFailure() {
 
 // HostRateLimiter tracks rate limiting state per host.
 type HostRateLimiter struct {
-	mu         sync.Mutex
-	breakers   map[string]*CircuitBreaker
-	config     CircuitBreakerConfig
+	mu          sync.Mutex
+	breakers    map[string]*CircuitBreaker
+	config      CircuitBreakerConfig
 	lastCleanup time.Time
 }
 

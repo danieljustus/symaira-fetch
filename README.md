@@ -116,6 +116,8 @@ Symaira Fetch can be configured via config file or environment variables:
 symfetch config init
 ```
 
+Explicit CLI flags (`--no-cache`, `--cache-ttl`, `--concurrency`, etc.) take precedence over config-file and environment-variable values when both are set.
+
 | Environment Variable | Config Field | Description |
 |---------------------|--------------|-------------|
 | `SYMFETCH_CACHE_DIR` | `cache.dir` | Override cache directory (default: `~/.cache/symfetch`) |

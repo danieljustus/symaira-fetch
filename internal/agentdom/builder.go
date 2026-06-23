@@ -17,12 +17,12 @@ const (
 
 // Builder converts a filtered DOM subtree into an agentdom.Document.
 type Builder struct {
-	counter   int
-	elements  []Element
+	counter     int
+	elements    []Element
 	interactive []Element
-	maxChars  int
-	charsSeen int
-	truncated bool
+	maxChars    int
+	charsSeen   int
+	truncated   bool
 }
 
 // NewBuilder creates a Builder with the given character budget.

@@ -14,20 +14,20 @@ import (
 )
 
 const (
-	defaultMaxSize     = 100 * 1024 * 1024
-	evictionDebounce  = 30 * time.Second
+	defaultMaxSize   = 100 * 1024 * 1024
+	evictionDebounce = 30 * time.Second
 )
 
 // Meta is stored alongside each cached body.
 type Meta struct {
-	URL         string            `json:"url"`
-	FinalURL    string            `json:"final_url"`
-	StatusCode  int               `json:"status_code"`
-	ContentType string            `json:"content_type"`
-	Protocol    string            `json:"protocol"`
+	URL         string              `json:"url"`
+	FinalURL    string              `json:"final_url"`
+	StatusCode  int                 `json:"status_code"`
+	ContentType string              `json:"content_type"`
+	Protocol    string              `json:"protocol"`
 	Headers     map[string][]string `json:"headers"`
-	StoredAt    time.Time         `json:"stored_at"`
-	TTL         time.Duration     `json:"ttl"`
+	StoredAt    time.Time           `json:"stored_at"`
+	TTL         time.Duration       `json:"ttl"`
 }
 
 // Cache is a flat-file, content-addressed response cache.

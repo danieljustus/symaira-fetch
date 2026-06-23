@@ -16,10 +16,10 @@ type hostStats struct {
 }
 
 type AdaptivePool struct {
-	minPerHost    int
-	maxPerHost    int
-	stats         map[string]*hostStats
-	mu            sync.Mutex
+	minPerHost int
+	maxPerHost int
+	stats      map[string]*hostStats
+	mu         sync.Mutex
 }
 
 func NewAdaptivePool(minPerHost, maxPerHost int) *AdaptivePool {

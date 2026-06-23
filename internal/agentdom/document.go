@@ -8,7 +8,7 @@ import (
 
 // Element is a semantic DOM element, optionally tagged with an agent ID.
 type Element struct {
-	AgentID  string            `json:"id,omitempty"`   // "@e1" for interactive elements
+	AgentID  string            `json:"id,omitempty"` // "@e1" for interactive elements
 	Category semantic.Category `json:"category"`
 	Tag      string            `json:"tag,omitempty"`
 	Text     string            `json:"text,omitempty"`
@@ -28,8 +28,8 @@ type Document struct {
 	FinalURL    string       `json:"final_url,omitempty"`
 	Title       string       `json:"title,omitempty"`
 	Lang        string       `json:"lang,omitempty"`
-	Content     []Element    `json:"content"`      // scored main content, document order
-	Interactive []Element    `json:"interactive"`  // flat list of @eN-tagged elements
+	Content     []Element    `json:"content"`     // scored main content, document order
+	Interactive []Element    `json:"interactive"` // flat list of @eN-tagged elements
 	Islands     []DataIsland `json:"islands,omitempty"`
 }
 
