@@ -279,6 +279,168 @@ func TestIndexPersistedAfterPut(t *testing.T) {
 	}
 }
 
+func TestEnsureCacheDir_ReadOnlyParent(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write into read-only directories")
+	}
+	dir := t.TempDir()
+	// Make the parent read-only so MkdirAll fails.
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0700) })
+
+	cacheDir := filepath.Join(dir, "nested", "cache")
+	// Should not panic; directory creation silently fails.
+	ensureCacheDir(cacheDir)
+
+	_, err := os.Stat(cacheDir)
+	if !os.IsNotExist(err) {
+		t.Errorf("expected cache dir not to be created, got err=%v", err)
+	}
+}
+
+func TestDefaultDir_UserHomeDirFallback(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+
+	got := DefaultDir()
+	want := filepath.Join(os.TempDir(), "symfetch")
+	if got != want {
+		t.Errorf("DefaultDir() = %q, want %q", got, want)
+	}
+}
+
+func TestCacheGet_CorruptMeta(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, 15*time.Minute)
+
+	body := []byte("hello")
+	meta := Meta{StatusCode: 200}
+	if err := c.Put("https://example.com", "chrome", "markdown", "", "", body, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	k := c.key("https://example.com", "chrome", "markdown", "", "")
+	if err := os.WriteFile(c.metaPath(k), []byte("not valid json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	gotBody, gotMeta, ok := c.Get("https://example.com", "chrome", "markdown", "", "")
+	if ok {
+		t.Error("expected cache miss for corrupt meta")
+	}
+	if gotBody != nil || gotMeta != nil {
+		t.Errorf("expected nil body and meta on corrupt meta, got body=%v meta=%v", gotBody, gotMeta)
+	}
+}
+
+func TestCacheGet_MissingBody(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, 15*time.Minute)
+
+	body := []byte("hello")
+	meta := Meta{StatusCode: 200}
+	if err := c.Put("https://example.com", "chrome", "markdown", "", "", body, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	k := c.key("https://example.com", "chrome", "markdown", "", "")
+	if err := os.Remove(c.bodyPath(k)); err != nil {
+		t.Fatal(err)
+	}
+
+	gotBody, gotMeta, ok := c.Get("https://example.com", "chrome", "markdown", "", "")
+	if ok {
+		t.Error("expected cache miss when body file is missing")
+	}
+	if gotBody != nil || gotMeta != nil {
+		t.Errorf("expected nil body and meta on missing body, got body=%v meta=%v", gotBody, gotMeta)
+	}
+}
+
+func TestCachePut_ReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write into read-only directories")
+	}
+	dir := t.TempDir()
+	c := New(dir, 15*time.Minute)
+
+	// Create the shard directory and make it read-only.
+	k := c.key("https://example.com", "chrome", "markdown", "", "")
+	shard := filepath.Join(dir, k[:2])
+	if err := os.MkdirAll(shard, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shard, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(shard, 0700) })
+
+	err := c.Put("https://example.com", "chrome", "markdown", "", "", []byte("hello"), Meta{StatusCode: 200})
+	if err == nil {
+		t.Error("expected Put to fail on read-only shard directory")
+	}
+}
+
+func TestIndexManager_LoadCorruptIndex(t *testing.T) {
+	dir := t.TempDir()
+	im := newIndexManager(dir)
+	if err := os.WriteFile(im.indexPath(), []byte("not valid json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := im.load(); err != nil {
+		t.Errorf("expected load to swallow corrupt index, got err=%v", err)
+	}
+	if !im.loaded {
+		t.Error("expected index manager to be marked loaded after corrupt index")
+	}
+}
+
+func TestIndexManager_SaveReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write into read-only directories")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0700) })
+
+	im := newIndexManager(dir)
+	im.addEntry("key", 1, time.Now())
+	if err := im.save(); err == nil {
+		t.Error("expected save to fail on read-only directory")
+	}
+}
+
+func TestCacheReconcile_CorruptIndexRebuilt(t *testing.T) {
+	dir := t.TempDir()
+	c1 := New(dir, 15*time.Minute)
+	c1.Put("https://example.com/keep", "chrome", "markdown", "", "", []byte("keep body"), Meta{StatusCode: 200})
+
+	// Corrupt the persisted index.
+	if err := os.WriteFile(filepath.Join(dir, indexFileName), []byte("not valid json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	c2 := New(dir, 15*time.Minute)
+
+	gotBody, _, ok := c2.Get("https://example.com/keep", "chrome", "markdown", "", "")
+	if !ok {
+		t.Fatal("expected cache hit after reconciling from disk")
+	}
+	if string(gotBody) != "keep body" {
+		t.Errorf("expected body %q, got %q", "keep body", gotBody)
+	}
+
+	entries := c2.indexMgr.getEntries()
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry after reconcile, got %d", len(entries))
+	}
+}
+
 func jsonMarshal(v interface{}) ([]byte, error) {
 	return []byte(`{"status_code":200}`), nil
 }
