@@ -23,11 +23,11 @@ type cacheIndex struct {
 }
 
 type indexManager struct {
-	mu      sync.RWMutex
-	dir     string
-	index   cacheIndex
-	loaded  bool
-	dirty   bool
+	mu     sync.RWMutex
+	dir    string
+	index  cacheIndex
+	loaded bool
+	dirty  bool
 }
 
 func newIndexManager(dir string) *indexManager {

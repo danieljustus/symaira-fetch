@@ -507,8 +507,8 @@ func TestText_ExcludesInteractive(t *testing.T) {
 
 func TestText_ExcludesIslands(t *testing.T) {
 	doc := &agentdom.Document{
-		URL:     "https://example.com",
-		Content: []agentdom.Element{},
+		URL:         "https://example.com",
+		Content:     []agentdom.Element{},
 		Interactive: []agentdom.Element{},
 		Islands: []agentdom.DataIsland{
 			{

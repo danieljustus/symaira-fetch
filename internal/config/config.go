@@ -13,13 +13,13 @@ type Config struct {
 }
 
 type HTTPConfig struct {
-	Proxy          string        `json:"proxy" toml:"proxy"`
-	TimeoutSeconds int           `json:"timeout_seconds" toml:"timeout_seconds"`
-	MaxBodyMB      int           `json:"max_body_mb" toml:"max_body_mb"`
-	Profile        string        `json:"profile" toml:"profile"`
-	DefaultFormat  string        `json:"default_format" toml:"default_format"`
-	MaxChars       int           `json:"max_chars" toml:"max_chars"`
-	Concurrency    int           `json:"concurrency" toml:"concurrency"`
+	Proxy          string `json:"proxy" toml:"proxy"`
+	TimeoutSeconds int    `json:"timeout_seconds" toml:"timeout_seconds"`
+	MaxBodyMB      int    `json:"max_body_mb" toml:"max_body_mb"`
+	Profile        string `json:"profile" toml:"profile"`
+	DefaultFormat  string `json:"default_format" toml:"default_format"`
+	MaxChars       int    `json:"max_chars" toml:"max_chars"`
+	Concurrency    int    `json:"concurrency" toml:"concurrency"`
 }
 
 type CacheConfig struct {
@@ -53,7 +53,7 @@ func Defaults() *Config {
 }
 
 var loader = configkit.NewLoader[Config](configkit.Options{
-	AppName:  "symfetch",
+	AppName:   "symfetch",
 	EnvPrefix: "SYMFETCH",
 }, Defaults)
 

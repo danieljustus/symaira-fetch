@@ -906,7 +906,7 @@ func TestAzureClient_fetchWithProxy_ErrTooLarge(t *testing.T) {
 	resp, err := c.Fetch(context.Background(), Request{
 		URL:          srv.URL,
 		Proxy:        srv.URL, // use test server as proxy (HTTP URL direct connect)
-		MaxBody:      50,     // Very small limit
+		MaxBody:      50,      // Very small limit
 		AllowPrivate: true,
 	})
 	if err != nil {
@@ -926,5 +926,3 @@ func TestAzureClient_fetchWithProxy_ErrTooLarge(t *testing.T) {
 		t.Logf("fetchWithProxy succeeded, status=%d", resp.StatusCode)
 	}
 }
-
-

@@ -54,10 +54,10 @@ type Options struct {
 
 // ContentOptions controls content extraction limits and scoring.
 type ContentOptions struct {
-	MaxChars       int  // character budget for content output
+	MaxChars       int // character budget for content output
 	IncludeLinks   bool
-	CharThreshold  int  // minimum chars for content scoring; below this triggers retry
-	MaxIslandBytes int  // max size of a single data island
+	CharThreshold  int // minimum chars for content scoring; below this triggers retry
+	MaxIslandBytes int // max size of a single data island
 }
 
 // CacheOptions controls response caching.

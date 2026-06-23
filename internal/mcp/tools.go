@@ -186,10 +186,10 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 		})
 
 		type jsonResult struct {
-			URL     string      `json:"url"`
-			OK      bool        `json:"ok"`
-			Content string      `json:"content,omitempty"`
-			Error   string      `json:"error,omitempty"`
+			URL     string `json:"url"`
+			OK      bool   `json:"ok"`
+			Content string `json:"content,omitempty"`
+			Error   string `json:"error,omitempty"`
 		}
 		out := make([]jsonResult, len(results))
 		for i, r := range results {
