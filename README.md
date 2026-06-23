@@ -73,6 +73,21 @@ symfetch https://example.com --profile firefox
 # With links table
 symfetch https://example.com --links
 
+# POST with JSON body
+symfetch https://api.example.com -X POST -H "Content-Type: application/json" -d '{"key":"value"}'
+
+# Custom proxy
+symfetch https://example.com --proxy socks5://localhost:1080
+
+# Respect robots.txt
+symfetch https://example.com --robots
+
+# Named session (persistent cookie jar)
+symfetch https://example.com --session my-session
+
+# Allow private/loopback addresses (dangerous, CLI-only)
+symfetch http://localhost:8080 --allow-private
+
 # Print version
 symfetch --version
 
