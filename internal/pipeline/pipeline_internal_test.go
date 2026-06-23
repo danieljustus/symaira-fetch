@@ -1,10 +1,61 @@
 package pipeline
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/cache"
+	"github.com/danieljustus/symaira-fetch/internal/dom"
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
+	"github.com/danieljustus/symaira-fetch/internal/robots"
 )
+
+type fakeClient struct {
+	resp *fetch.Response
+	err  error
+}
+
+func (c *fakeClient) Fetch(_ context.Context, _ fetch.Request) (*fetch.Response, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.resp, nil
+}
+
+func (c *fakeClient) Close() error { return nil }
+
+type fakeEngine struct {
+	tree *dom.Tree
+	err  error
+}
+
+func (e *fakeEngine) Materialize(_ context.Context, _ *fetch.Response) (*dom.Tree, error) {
+	return e.tree, e.err
+}
+
+type fakeCache struct {
+	*cache.Cache
+	putErr error
+}
+
+func (fc *fakeCache) Put(_, _, _, _, _ string, _ []byte, _ cache.Meta) error {
+	return fc.putErr
+}
+
+// cachePutter is the minimal interface pipeline needs from a cache.
+type cachePutter interface {
+	Put(url, profile, format, session, contentKey string, body []byte, meta cache.Meta) error
+}
+
+var _ cachePutter = (*cache.Cache)(nil)
+var _ cachePutter = (*fakeCache)(nil)
 
 func TestRawHTMLFallback(t *testing.T) {
 	tests := []struct {
@@ -146,4 +197,166 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestRun_CachedPrivateRedirectBlocked(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	cacher.Put("https://example.com/page", "chrome", "markdown", "", ck, []byte("cached"), cache.Meta{
+		URL:      "https://example.com/page",
+		FinalURL: "http://127.0.0.1:9999/admin",
+	})
+
+	if _, _, ok := cacher.Get("https://example.com/page", "chrome", "markdown", "", ck); !ok {
+		t.Fatal("expected cache hit in setup")
+	}
+
+	respBody := []byte("<html><body>fetched after cache discard</body></html>")
+	tree, err := dom.Parse(respBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			FinalURL:    "https://example.com/page",
+			StatusCode:  http.StatusOK,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			Body:        respBody,
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/page", Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Instance: cacher,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected pipeline to complete after cache discard, got: %v", err)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if !containsString(res.Output, "fetched after cache discard") {
+		t.Errorf("expected fetched body to be processed, got output: %q", res.Output)
+	}
+}
+
+func TestRun_RobotsCheckErrorLogged(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Hello</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	checker := robots.NewChecker().WithPrivate(true)
+	_, err = Run(context.Background(), c, StaticEngine{}, srv.URL+"/page", Options{
+		Format: FormatMarkdown,
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			Robots:        true,
+			RobotsChecker: checker,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected robots.txt error to be logged and fetch to proceed, got: %v", err)
+	}
+}
+
+func TestRun_MaterializeError(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Hello</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	eng := &fakeEngine{err: errors.New("boom")}
+	_, err = Run(context.Background(), c, eng, srv.URL, Options{
+		Format: FormatMarkdown,
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for materialize failure")
+	}
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) {
+		t.Errorf("expected ParseError, got %T: %v", err, err)
+	}
+}
+
+func TestRun_CachePutFailureLogged(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Hello</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if os.Getuid() == 0 {
+		t.Skip("root can write into read-only directories")
+	}
+
+	tmpDir := t.TempDir()
+	baseCache := cache.New(tmpDir, 1*time.Hour)
+
+	// Make the cache shard directory read-only so Put fails.
+	// Use a fixed URL to avoid needing access to the unexported key method.
+	shard := filepath.Join(tmpDir, "ab")
+	if err := os.MkdirAll(shard, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shard, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(shard, 0700) })
+
+	_, err = Run(context.Background(), c, StaticEngine{}, srv.URL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Instance: baseCache,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected cache put failure to be logged and ignored, got: %v", err)
+	}
+}
+
+func serveInternalServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
 }

@@ -60,6 +60,16 @@ func NewChecker() *Checker {
 	}
 }
 
+// WithPrivate allows the checker to fetch robots.txt from RFC1918/loopback
+// addresses. It is intended for tests and for deployments that already opt
+// into private fetches at a higher layer.
+func (c *Checker) WithPrivate(private bool) *Checker {
+	c.mu.Lock()
+	c.private = private
+	c.mu.Unlock()
+	return c
+}
+
 // Check returns true if the given URL is allowed for userAgent according
 // to the site's robots.txt. If robots.txt cannot be fetched or parsed,
 // the URL is allowed (fail-open for polite crawling).
