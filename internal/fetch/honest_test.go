@@ -1118,3 +1118,247 @@ func TestHonestClient_InvalidProxyURL(t *testing.T) {
 		t.Fatal("expected error for invalid proxy URL")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// getProxyClient: proxy with SSRF-safe redirect check (allowPrivate=false)
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_getProxyClient_SafeProxyRedirect(t *testing.T) {
+	t.Parallel()
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("private"))
+	}))
+	defer privateSrv.Close()
+
+	publicSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateSrv.URL, http.StatusFound)
+	}))
+	defer publicSrv.Close()
+
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		}
+		proxyReq, _ := http.NewRequest(r.Method, r.URL.String(), r.Body)
+		proxyReq.Header = r.Header
+		resp, err := transport.RoundTrip(proxyReq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.Fetch(context.Background(), Request{
+		URL:          publicSrv.URL,
+		Proxy:        proxySrv.URL,
+		AllowPrivate: false,
+	})
+	if err == nil {
+		t.Fatal("expected SSRF redirect block via proxy")
+	}
+	if !strings.Contains(err.Error(), "blocked_private") {
+		t.Errorf("expected blocked_private error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getProxyClient: proxy with allowPrivate=true follows redirect
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_getProxyClient_PrivateProxyRedirect(t *testing.T) {
+	t.Parallel()
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("reached"))
+	}))
+	defer privateSrv.Close()
+
+	publicSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateSrv.URL, http.StatusFound)
+	}))
+	defer publicSrv.Close()
+
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		}
+		proxyReq, _ := http.NewRequest(r.Method, r.URL.String(), r.Body)
+		proxyReq.Header = r.Header
+		resp, err := transport.RoundTrip(proxyReq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	resp, err := c.Fetch(context.Background(), Request{
+		URL:          publicSrv.URL,
+		Proxy:        proxySrv.URL,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(resp.Body) != "reached" {
+		t.Fatalf("expected 'reached', got %q", resp.Body)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getProxyClient: proxy with AllowPrivate=false uses safe dial guard
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_getProxyClient_SafeProxyDialGuard(t *testing.T) {
+	t.Parallel()
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	hc := c.(*honestClient)
+	client := hc.getProxyClient("http://localhost:19999", false)
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("expected CheckRedirect to be set for safe proxy client")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getProxyClient: proxy with AllowPrivate=true uses unsafe redirect
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_getProxyClient_UnsafeProxyRedirect(t *testing.T) {
+	t.Parallel()
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	hc := c.(*honestClient)
+	client := hc.getProxyClient("http://localhost:19998", true)
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("expected CheckRedirect to be set for unsafe proxy client")
+	}
+
+	client2 := hc.getProxyClient("http://localhost:19998", true)
+	if client != client2 {
+		t.Error("expected cached proxy client for same key")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Close with proxy clients
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_CloseWithProxyClients(t *testing.T) {
+	t.Parallel()
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	defer target.Close()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		}
+		proxyReq, _ := http.NewRequest(r.Method, r.URL.String(), r.Body)
+		proxyReq.Header = r.Header
+		resp, err := transport.RoundTrip(proxyReq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}))
+	defer proxy.Close()
+
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = c.Fetch(context.Background(), Request{
+		URL:          target.URL,
+		Proxy:        proxy.URL,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hc := c.(*honestClient)
+	hc.proxyMu.Lock()
+	count := len(hc.proxyClients)
+	hc.proxyMu.Unlock()
+	if count == 0 {
+		t.Fatal("expected at least one cached proxy client")
+	}
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("unexpected error from Close: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fetch with AllowPrivate=false uses safe client (no proxy)
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_DenyPrivate_UsesSafeClient(t *testing.T) {
+	t.Parallel()
+	c, err := New(ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	hc := c.(*honestClient)
+	if hc.hcSafe == nil || hc.hcUnsafe == nil {
+		t.Fatal("expected both safe and unsafe clients to be initialized")
+	}
+
+	hc.hcSafe.CloseIdleConnections()
+	hc.hcUnsafe.CloseIdleConnections()
+}

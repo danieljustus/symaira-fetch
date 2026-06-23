@@ -360,3 +360,219 @@ func serveInternalServer(t *testing.T, h http.Handler) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+func TestRun_NoCache(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>No Cache</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	res, err := Run(context.Background(), c, StaticEngine{}, srv.URL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			NoCache: true,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsString(res.Output, "No Cache") {
+		t.Errorf("expected 'No Cache' in output, got: %q", res.Output)
+	}
+}
+
+func TestRun_DefaultCacheDir(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Default Dir</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	res, err := Run(context.Background(), c, StaticEngine{}, srv.URL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Dir: "",
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsString(res.Output, "Default Dir") {
+		t.Errorf("expected 'Default Dir' in output, got: %q", res.Output)
+	}
+}
+
+func TestRun_DefaultCacheTTL(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Default TTL</body></html>"))
+	}))
+
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	res, err := Run(context.Background(), c, StaticEngine{}, srv.URL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Dir: t.TempDir(),
+			TTL: 0,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsString(res.Output, "Default TTL") {
+		t.Errorf("expected 'Default TTL' in output, got: %q", res.Output)
+	}
+}
+
+func TestContentKey_Deterministic(t *testing.T) {
+	o1 := ContentOptions{MaxChars: 5000, IncludeLinks: true, CharThreshold: 200, MaxIslandBytes: 1000}
+	o2 := ContentOptions{MaxChars: 5000, IncludeLinks: true, CharThreshold: 200, MaxIslandBytes: 1000}
+	if o1.ContentKey() != o2.ContentKey() {
+		t.Errorf("expected same ContentKey for identical options")
+	}
+
+	o3 := ContentOptions{MaxChars: 1000, IncludeLinks: false, CharThreshold: 200, MaxIslandBytes: 1000}
+	if o1.ContentKey() == o3.ContentKey() {
+		t.Errorf("expected different ContentKey for different MaxChars")
+	}
+}
+
+func TestRun_CacheHitReturnsDirectly(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("server should not be hit when cache has valid entry")
+	}))
+
+	c := &fakeClient{
+		resp: &fetch.Response{},
+		err:  nil,
+	}
+	eng := &fakeEngine{}
+
+	cachedBody := []byte("cached markdown output")
+	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	cacher.Put(srv.URL, "chrome", "markdown", "", ck, cachedBody, cache.Meta{
+		URL:        srv.URL,
+		FinalURL:   srv.URL,
+		StatusCode: 200,
+		Protocol:   "HTTP/1.1",
+	})
+
+	res, err := Run(context.Background(), c, eng, srv.URL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Instance: cacher,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if res.Output != "cached markdown output" {
+		t.Errorf("expected cached output, got: %q", res.Output)
+	}
+}
+
+func TestRun_AllowPrivate_Propagated(t *testing.T) {
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode: 200,
+			Body:       []byte("<html><body>ok</body></html>"),
+			Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:   "http://127.0.0.1:9999/page",
+		},
+	}
+	tree, err := dom.Parse([]byte("<html><body>ok</body></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := &fakeEngine{tree: tree}
+
+	_, err = Run(context.Background(), c, eng, "http://127.0.0.1:9999/page", Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			NoCache: true,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error with AllowPrivate=true, got: %v", err)
+	}
+}
+
+func TestRun_CacheHit_PrivateRedirect_Discarded(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour)
+
+	publicURL := "https://example.com/page"
+	privateRedirect := "http://127.0.0.1:9999/secret"
+	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	cacher.Put(publicURL, "chrome", "markdown", "", ck, []byte("cached secret"), cache.Meta{
+		URL:      publicURL,
+		FinalURL: privateRedirect,
+	})
+
+	respBody := []byte("<html><body>fetched fresh</body></html>")
+	tree, _ := dom.Parse(respBody)
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			FinalURL:    publicURL,
+			StatusCode:  http.StatusOK,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			Body:        respBody,
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, publicURL, Options{
+		Format: FormatMarkdown,
+		Cache: CacheOptions{
+			Instance: cacher,
+		},
+		Security: SecurityOptions{
+			AllowPrivate: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected pipeline to complete after cache discard, got: %v", err)
+	}
+	if !containsString(res.Output, "fetched fresh") {
+		t.Errorf("expected fresh fetch output, got: %q", res.Output)
+	}
+}

@@ -444,3 +444,92 @@ func TestCacheReconcile_CorruptIndexRebuilt(t *testing.T) {
 func jsonMarshal(v interface{}) ([]byte, error) {
 	return []byte(`{"status_code":200}`), nil
 }
+
+func TestIndexManager_RemoveEntry_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	im := newIndexManager(dir)
+	im.addEntry("existing-key", 100, time.Now())
+
+	found := im.removeEntry("nonexistent-key")
+	if found {
+		t.Error("expected false when removing nonexistent key")
+	}
+	entries := im.getEntries()
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry to remain, got %d", len(entries))
+	}
+}
+
+func TestIndexManager_Load_PermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can read any file")
+	}
+	dir := t.TempDir()
+	im := newIndexManager(dir)
+	os.WriteFile(im.indexPath(), []byte("valid"), 0600)
+
+	if err := os.Chmod(im.indexPath(), 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(im.indexPath(), 0600) })
+
+	err := im.load()
+	if err == nil {
+		t.Error("expected error when reading index file with no permissions")
+	}
+}
+
+func TestIndexManager_Rebuild(t *testing.T) {
+	dir := t.TempDir()
+	im := newIndexManager(dir)
+
+	entries := []indexEntry{
+		{Key: "key1", Size: 100, StoredAt: time.Now()},
+		{Key: "key2", Size: 200, StoredAt: time.Now()},
+	}
+	im.rebuild(entries, 300)
+
+	if im.getTotalSize() != 300 {
+		t.Errorf("expected total size 300, got %d", im.getTotalSize())
+	}
+	got := im.getEntries()
+	if len(got) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(got))
+	}
+}
+
+func TestCachePut_MetaMarshalError(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, 15*time.Minute)
+
+	body := []byte("body")
+	meta := Meta{StatusCode: 200}
+	if err := c.Put("https://example.com", "chrome", "markdown", "", "", body, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, ok := c.Get("https://example.com", "chrome", "markdown", "", "")
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if string(got) != "body" {
+		t.Errorf("expected 'body', got %q", got)
+	}
+}
+
+func TestCacheScanCache_MissingMeta(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, 15*time.Minute)
+
+	subdir := filepath.Join(dir, "ab")
+	os.MkdirAll(subdir, 0700)
+	os.WriteFile(filepath.Join(subdir, "testdata.body"), []byte("body"), 0600)
+
+	totalSize, entries := c.scanCache()
+	if totalSize != 0 {
+		t.Errorf("expected 0 total size for orphan body, got %d", totalSize)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for orphan body, got %d", len(entries))
+	}
+}
