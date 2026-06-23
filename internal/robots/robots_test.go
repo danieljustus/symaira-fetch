@@ -400,3 +400,89 @@ Allow: /private/docs/
 		t.Error("OtherBot should be disallowed on /private/docs/ via * rule")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// WithPrivate setter
+// ---------------------------------------------------------------------------
+
+func TestCheckerWithPrivate(t *testing.T) {
+	c := NewChecker()
+	if c.private {
+		t.Error("expected private=false by default")
+	}
+
+	ret := c.WithPrivate(true)
+	if !c.private {
+		t.Error("expected private=true after WithPrivate(true)")
+	}
+	if ret != c {
+		t.Error("WithPrivate should return the same checker for chaining")
+	}
+
+	c.WithPrivate(false)
+	if c.private {
+		t.Error("expected private=false after WithPrivate(false)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check: SSRF guard application (private=false blocks robots.txt fetch)
+// ---------------------------------------------------------------------------
+
+func TestCheckerSSRFGuardApplication(t *testing.T) {
+	c := NewChecker()
+	// private defaults to false; SSRF guard should block fetching from 127.0.0.1
+	allowed, err := c.Check(context.Background(), "Bot", "http://127.0.0.1:9999/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Error("expected disallowed for private URL when SSRF guard is active")
+	}
+}
+
+func TestCheckerSSRFGuardDisabledWithWithPrivate(t *testing.T) {
+	robotsTxt := "User-agent: *\nDisallow: /secret/\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, robotsTxt)
+	}))
+	defer srv.Close()
+
+	c := NewChecker().WithPrivate(true)
+
+	allowed, err := c.Check(context.Background(), "Bot", srv.URL+"/secret/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Error("expected disallowed for /secret/page")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check: groupsForDomain error paths
+// ---------------------------------------------------------------------------
+
+func TestCheckerUnexpectedStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	c := NewChecker().WithPrivate(true)
+	_, err := c.groupsForDomain(context.Background(), srv.URL)
+	if err == nil {
+		t.Error("expected error for non-200/non-404 status")
+	}
+}
+
+func TestCheckerInvalidURL(t *testing.T) {
+	c := NewChecker()
+	allowed, err := c.Check(context.Background(), "Bot", "://bad-url")
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+	if !allowed {
+		t.Error("expected fail-open (allowed=true) for invalid URL")
+	}
+}

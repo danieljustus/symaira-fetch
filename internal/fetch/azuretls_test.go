@@ -926,3 +926,34 @@ func TestAzureClient_fetchWithProxy_ErrTooLarge(t *testing.T) {
 		t.Logf("fetchWithProxy succeeded, status=%d", resp.StatusCode)
 	}
 }
+
+func TestAzureClient_doFetchWithRetry_PostFetchSSRFBlocked(t *testing.T) {
+	privateSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "private content")
+	}))
+	defer privateSrv.Close()
+
+	publicToPrivate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateSrv.URL, http.StatusFound)
+	}))
+	defer publicToPrivate.Close()
+
+	c, err := newAzureClient(ProfileChrome, &clientOptions{
+		timeoutSeconds: 5,
+		maxBodyMB:      10,
+		enableRetry:    false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.Fetch(context.Background(), Request{
+		URL:          publicToPrivate.URL,
+		AllowPrivate: false,
+	})
+	if err == nil {
+		t.Fatal("expected SSRF error from redirect to private URL")
+	}
+}

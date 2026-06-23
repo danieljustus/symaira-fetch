@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -55,9 +56,6 @@ func TestIsPrivate(t *testing.T) {
 }
 
 func TestIsPrivate_IPv4MappedIPv6Bypass(t *testing.T) {
-	// This test specifically verifies that IPv4-mapped IPv6 addresses
-	// cannot bypass the SSRF guard. Without ::ffff:0:0/96 in privateRanges,
-	// addresses like ::ffff:127.0.0.1 would not be caught.
 	bypassIPs := []string{
 		"::ffff:127.0.0.1",
 		"::ffff:10.0.0.1",
@@ -73,5 +71,61 @@ func TestIsPrivate_IPv4MappedIPv6Bypass(t *testing.T) {
 		if !isPrivate(ip) {
 			t.Errorf("isPrivate(%s) = false, want true (IPv4-mapped IPv6 bypass detected)", ipStr)
 		}
+	}
+}
+
+func TestErrBlockedPrivate_Error(t *testing.T) {
+	e := &ErrBlockedPrivate{URL: "http://127.0.0.1:8080/admin"}
+	msg := e.Error()
+	if msg == "" {
+		t.Error("expected non-empty error message")
+	}
+	if !strings.Contains(msg, "127.0.0.1") {
+		t.Errorf("error message should contain URL, got: %q", msg)
+	}
+	if !strings.Contains(msg, "blocked_private") {
+		t.Errorf("error message should contain 'blocked_private', got: %q", msg)
+	}
+}
+
+func TestControlSSRF_NoPortInAddress(t *testing.T) {
+	err := ControlSSRF("tcp", "8.8.8.8", nil)
+	if err != nil {
+		t.Errorf("expected no error for public IP without port, got: %v", err)
+	}
+}
+
+func TestControlSSRF_PrivateNoPort(t *testing.T) {
+	err := ControlSSRF("tcp", "127.0.0.1", nil)
+	if err == nil {
+		t.Error("expected error for private IP without port")
+	}
+}
+
+func TestControlSSRF_InvalidIP(t *testing.T) {
+	err := ControlSSRF("tcp", "not-an-ip:80", nil)
+	if err != nil {
+		t.Errorf("expected no error for non-parseable IP, got: %v", err)
+	}
+}
+
+func TestCheckSSRF_InvalidURL(t *testing.T) {
+	err := CheckSSRF("://bad-url")
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestCheckSSRF_EmptyHost(t *testing.T) {
+	err := CheckSSRF("http:///path")
+	if err == nil {
+		t.Error("expected error for empty host")
+	}
+}
+
+func TestCheckSSRF_NonHTTPScheme(t *testing.T) {
+	err := CheckSSRF("ftp://example.com/file")
+	if err == nil {
+		t.Error("expected error for non-HTTP scheme")
 	}
 }

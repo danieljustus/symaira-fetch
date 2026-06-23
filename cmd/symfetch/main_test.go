@@ -1042,3 +1042,53 @@ func TestExitCode_PartialFailure(t *testing.T) {
 		t.Errorf("expected KindUnavailable=%q, got %q", exitcodes.KindUnavailable, cliErr.Kind)
 	}
 }
+
+func TestRunRaw_PartialFailure(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	_, stderr, err := executeCmd(t,
+		"--raw",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL, "http://127.0.0.1:1/bad",
+	)
+	if err == nil {
+		t.Fatal("expected error for raw partial failure")
+	}
+	code := exitcodes.ExitCodeFromError(err)
+	if code != exitcodes.ExitGeneric {
+		t.Errorf("expected ExitGeneric (%d), got %d", exitcodes.ExitGeneric, code)
+	}
+	if !strings.Contains(stderr, "error fetching") {
+		t.Errorf("expected 'error fetching' in stderr, got: %s", stderr)
+	}
+}
+
+func TestVersionCmd_Check(t *testing.T) {
+	cmd := newRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"version", "--check"})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := cmd.Execute()
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var outBuf bytes.Buffer
+	outBuf.ReadFrom(r)
+	output := outBuf.String()
+
+	if !strings.Contains(output, "symfetch") {
+		t.Errorf("version output should contain 'symfetch', got: %s", output)
+	}
+}
