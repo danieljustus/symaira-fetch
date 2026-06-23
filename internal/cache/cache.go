@@ -41,14 +41,18 @@ type Cache struct {
 	lastEviction time.Time
 }
 
-// New creates a Cache rooted at dir with the given TTL.
+// New creates a Cache rooted at dir with the given TTL and max size.
 // It ensures the directory exists with 0700 permissions and fixes
 // overly permissive directories on shared systems.
-func New(dir string, ttl time.Duration) *Cache {
+// If maxSize is 0, the default (100 MB) is used.
+func New(dir string, ttl time.Duration, maxSize int64) *Cache {
 	ensureCacheDir(dir)
 	im := newIndexManager(dir)
 	im.load()
-	c := &Cache{dir: dir, ttl: ttl, maxSize: defaultMaxSize, indexMgr: im}
+	if maxSize <= 0 {
+		maxSize = defaultMaxSize
+	}
+	c := &Cache{dir: dir, ttl: ttl, maxSize: maxSize, indexMgr: im}
 	c.reconcileIndex()
 	return c
 }

@@ -136,6 +136,7 @@ Explicit CLI flags (`--no-cache`, `--cache-ttl`, `--concurrency`, etc.) take pre
 | Environment Variable | Config Field | Description |
 |---------------------|--------------|-------------|
 | `SYMFETCH_CACHE_DIR` | `cache.dir` | Override cache directory (default: `~/.cache/symfetch`) |
+| `SYMFETCH_CACHE_MAX_SIZE_MB` | `cache.max_size_mb` | Maximum cache size in MB (default: 100) |
 | `SYMFETCH_HTTP_PROFILE` | `http.profile` | Browser profile: chrome, firefox, honest |
 | `SYMFETCH_HTTP_TIMEOUT_SECONDS` | `http.timeout_seconds` | Request timeout in seconds |
 | `SYMFETCH_SECURITY_ALLOW_PRIVATE` | `security.allow_private` | Allow fetching private/loopback addresses |

@@ -13,7 +13,7 @@ import (
 func newTempCache(t *testing.T, ttl time.Duration) *cache.Cache {
 	t.Helper()
 	dir := t.TempDir()
-	return cache.New(dir, ttl)
+	return cache.New(dir, ttl, 0)
 }
 
 func TestCacheGetMiss(t *testing.T) {
@@ -82,7 +82,7 @@ func TestCacheDifferentProfilesDontCollide(t *testing.T) {
 
 func TestCacheAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
-	c := cache.New(dir, 15*time.Minute)
+	c := cache.New(dir, 15*time.Minute, 0)
 	c.Put("https://example.com", "chrome", "markdown", "", "", []byte("data"), cache.Meta{StatusCode: 200})
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -129,7 +129,7 @@ func TestCacheDifferentFormatsDontCollide(t *testing.T) {
 func TestCacheDirPermissions(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := filepath.Join(dir, "cache")
-	c := cache.New(cacheDir, 15*time.Minute)
+	c := cache.New(cacheDir, 15*time.Minute, 0)
 	_ = c // ensure dir created
 
 	info, err := os.Stat(cacheDir)
@@ -146,7 +146,7 @@ func TestCacheDirPermissionsTightened(t *testing.T) {
 	cacheDir := filepath.Join(dir, "cache")
 	os.MkdirAll(cacheDir, 0755) // intentionally permissive
 
-	cache.New(cacheDir, 15*time.Minute)
+	cache.New(cacheDir, 15*time.Minute, 0)
 
 	info, err := os.Stat(cacheDir)
 	if err != nil {

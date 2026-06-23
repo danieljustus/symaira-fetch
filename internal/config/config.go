@@ -23,9 +23,10 @@ type HTTPConfig struct {
 }
 
 type CacheConfig struct {
-	Enabled bool          `json:"enabled" toml:"enabled"`
-	TTL     time.Duration `json:"ttl" toml:"ttl"`
-	Dir     string        `json:"dir" toml:"dir"`
+	Enabled   bool          `json:"enabled" toml:"enabled"`
+	TTL       time.Duration `json:"ttl" toml:"ttl"`
+	Dir       string        `json:"dir" toml:"dir"`
+	MaxSizeMB int           `json:"max_size_mb" toml:"max_size_mb"`
 }
 
 type SecurityConfig struct {
@@ -43,8 +44,9 @@ func Defaults() *Config {
 			Concurrency:    4,
 		},
 		Cache: CacheConfig{
-			Enabled: true,
-			TTL:     15 * time.Minute,
+			Enabled:   true,
+			TTL:       15 * time.Minute,
+			MaxSizeMB: 100,
 		},
 		Security: SecurityConfig{
 			AllowPrivate: false,
@@ -88,6 +90,8 @@ enabled = true
 ttl = "15m"
 # Cache directory (default: ~/.cache/symfetch)
 # dir = ""
+# Maximum cache size in MB (default: 100)
+max_size_mb = 100
 
 [security]
 # Allow fetching private/loopback addresses (dangerous, CLI-only recommended)

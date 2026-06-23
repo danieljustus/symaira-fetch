@@ -10,7 +10,7 @@ import (
 
 func TestEvictIfOverSize_NoEviction(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 	c.maxSize = 1000
 
 	body := []byte("small")
@@ -27,7 +27,7 @@ func TestEvictIfOverSize_NoEviction(t *testing.T) {
 
 func TestEvictIfOverSize_EvictsOldest(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 	c.maxSize = 200
 
 	for i := 0; i < 5; i++ {
@@ -50,7 +50,7 @@ func TestEvictIfOverSize_EvictsOldest(t *testing.T) {
 
 func TestScanCache_Empty(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	totalSize, entries := c.scanCache()
 	if totalSize != 0 {
@@ -63,7 +63,7 @@ func TestScanCache_Empty(t *testing.T) {
 
 func TestScanCache_WithEntries(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	for i := 0; i < 3; i++ {
 		url := "https://example.com/page" + string(rune('A'+i))
@@ -85,7 +85,7 @@ func TestScanCache_WithEntries(t *testing.T) {
 
 func TestScanCache_CorruptMetaSkipped(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	// Add a valid entry
 	body := []byte("valid body")
@@ -106,7 +106,7 @@ func TestScanCache_CorruptMetaSkipped(t *testing.T) {
 
 func TestScanCache_MissingBodySkipped(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	// Add a valid entry
 	body := []byte("valid body")
@@ -132,7 +132,7 @@ func TestReconcileIndex_CrossProcessStartup(t *testing.T) {
 	dir := t.TempDir()
 
 	// Simulate another process writing cache files directly, with no index.
-	c1 := New(dir, 15*time.Minute)
+	c1 := New(dir, 15*time.Minute, 0)
 	body := []byte("remote process body")
 	meta := Meta{StatusCode: 200, StoredAt: time.Now()}
 	metaData, _ := json.Marshal(meta)
@@ -146,7 +146,7 @@ func TestReconcileIndex_CrossProcessStartup(t *testing.T) {
 	os.Remove(filepath.Join(dir, indexFileName))
 
 	// Create a fresh cache process against the same directory.
-	c2 := New(dir, 15*time.Minute)
+	c2 := New(dir, 15*time.Minute, 0)
 
 	gotBody, _, ok := c2.Get("https://example.com", "chrome", "markdown", "", "")
 	if !ok {
@@ -166,7 +166,7 @@ func TestReconcileIndex_StaleIndexPruned(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write one valid entry.
-	c1 := New(dir, 15*time.Minute)
+	c1 := New(dir, 15*time.Minute, 0)
 	c1.Put("https://example.com/keep", "chrome", "markdown", "", "",
 		[]byte("keep body"), Meta{StatusCode: 200})
 
@@ -176,7 +176,7 @@ func TestReconcileIndex_StaleIndexPruned(t *testing.T) {
 	c1.indexMgr.save()
 
 	// Start a new process. reconcileIndex should remove the phantom.
-	c2 := New(dir, 15*time.Minute)
+	c2 := New(dir, 15*time.Minute, 0)
 
 	totalSize := c2.indexMgr.getTotalSize()
 	entries := c2.indexMgr.getEntries()
@@ -203,7 +203,7 @@ func TestReconcileIndex_StaleIndexPruned(t *testing.T) {
 
 func TestAddEntry_UpsertNoDuplicates(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	c.Put("https://example.com/page", "chrome", "markdown", "", "",
 		[]byte("first version"), Meta{StatusCode: 200})
@@ -234,7 +234,7 @@ func TestAddEntry_UpsertNoDuplicates(t *testing.T) {
 
 func TestEvictIfOverSize_BelowWatermark(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 	c.maxSize = 500
 
 	for i := 0; i < 10; i++ {
@@ -257,7 +257,7 @@ func TestEvictIfOverSize_BelowWatermark(t *testing.T) {
 
 func TestIndexPersistedAfterPut(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	c.Put("https://example.com", "chrome", "markdown", "", "",
 		[]byte("persist-me"), Meta{StatusCode: 200})
@@ -313,7 +313,7 @@ func TestDefaultDir_UserHomeDirFallback(t *testing.T) {
 
 func TestCacheGet_CorruptMeta(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	body := []byte("hello")
 	meta := Meta{StatusCode: 200}
@@ -337,7 +337,7 @@ func TestCacheGet_CorruptMeta(t *testing.T) {
 
 func TestCacheGet_MissingBody(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	body := []byte("hello")
 	meta := Meta{StatusCode: 200}
@@ -364,7 +364,7 @@ func TestCachePut_ReadOnlyDir(t *testing.T) {
 		t.Skip("root can write into read-only directories")
 	}
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	// Create the shard directory and make it read-only.
 	k := c.key("https://example.com", "chrome", "markdown", "", "")
@@ -417,7 +417,7 @@ func TestIndexManager_SaveReadOnlyDir(t *testing.T) {
 
 func TestCacheReconcile_CorruptIndexRebuilt(t *testing.T) {
 	dir := t.TempDir()
-	c1 := New(dir, 15*time.Minute)
+	c1 := New(dir, 15*time.Minute, 0)
 	c1.Put("https://example.com/keep", "chrome", "markdown", "", "", []byte("keep body"), Meta{StatusCode: 200})
 
 	// Corrupt the persisted index.
@@ -425,7 +425,7 @@ func TestCacheReconcile_CorruptIndexRebuilt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c2 := New(dir, 15*time.Minute)
+	c2 := New(dir, 15*time.Minute, 0)
 
 	gotBody, _, ok := c2.Get("https://example.com/keep", "chrome", "markdown", "", "")
 	if !ok {
@@ -500,7 +500,7 @@ func TestIndexManager_Rebuild(t *testing.T) {
 
 func TestCachePut_MetaMarshalError(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	body := []byte("body")
 	meta := Meta{StatusCode: 200}
@@ -519,7 +519,7 @@ func TestCachePut_MetaMarshalError(t *testing.T) {
 
 func TestCacheScanCache_MissingMeta(t *testing.T) {
 	dir := t.TempDir()
-	c := New(dir, 15*time.Minute)
+	c := New(dir, 15*time.Minute, 0)
 
 	subdir := filepath.Join(dir, "ab")
 	os.MkdirAll(subdir, 0700)
