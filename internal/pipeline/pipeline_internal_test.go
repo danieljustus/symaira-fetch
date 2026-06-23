@@ -201,7 +201,7 @@ func contains(s, substr string) bool {
 
 func TestRun_CachedPrivateRedirectBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
 	cacher.Put("https://example.com/page", "chrome", "markdown", "", ck, []byte("cached"), cache.Meta{
 		URL:      "https://example.com/page",
@@ -327,7 +327,7 @@ func TestRun_CachePutFailureLogged(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	baseCache := cache.New(tmpDir, 1*time.Hour)
+	baseCache := cache.New(tmpDir, 1*time.Hour, 0)
 
 	// Make the cache shard directory read-only so Put fails.
 	// Use a fixed URL to avoid needing access to the unexported key method.
@@ -467,7 +467,7 @@ func TestContentKey_Deterministic(t *testing.T) {
 
 func TestRun_CacheHitReturnsDirectly(t *testing.T) {
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 
 	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("server should not be hit when cache has valid entry")
@@ -536,7 +536,7 @@ func TestRun_AllowPrivate_Propagated(t *testing.T) {
 
 func TestRun_CacheHit_PrivateRedirect_Discarded(t *testing.T) {
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 
 	publicURL := "https://example.com/page"
 	privateRedirect := "http://127.0.0.1:9999/secret"

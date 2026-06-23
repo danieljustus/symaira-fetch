@@ -57,7 +57,7 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 		if ttl <= 0 {
 			ttl = 24 * time.Hour
 		}
-		opts.Cache.Instance = cache.New(dir, ttl)
+		opts.Cache.Instance = cache.New(dir, ttl, opts.Cache.MaxSize)
 	}
 
 	results := make([]Result, len(items))

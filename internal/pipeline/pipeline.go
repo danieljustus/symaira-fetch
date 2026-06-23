@@ -65,6 +65,7 @@ type CacheOptions struct {
 	NoCache  bool
 	Dir      string
 	TTL      time.Duration
+	MaxSize  int64 // max cache size in bytes; 0 uses default (100 MB)
 	Instance *cache.Cache // shared cache instance; when nil, per-call cache is created
 }
 
@@ -125,7 +126,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 			if ttl <= 0 {
 				ttl = 24 * time.Hour
 			}
-			cacher = cache.New(dir, ttl)
+			cacher = cache.New(dir, ttl, o.Cache.MaxSize)
 		}
 	}
 

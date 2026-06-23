@@ -438,7 +438,7 @@ func min(a, b int) int {
 
 func TestPipelineCachedPrivateURLBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 
 	privateURL := "http://127.0.0.1:9999/secret"
 	cacher.Put(privateURL, "chrome", "markdown", "", "", []byte("secret content"), cache.Meta{
@@ -465,7 +465,7 @@ func TestPipelineCachedPrivateURLBlocked(t *testing.T) {
 
 func TestPipelineCachedPrivateRedirectBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 
 	publicURL := "http://example.com/page"
 	privateRedirect := "http://127.0.0.1:9999/admin"
@@ -564,7 +564,7 @@ func TestPipelineCacheDifferentMaxCharsDontShare(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 	c := newTestClient(t)
 	eng := pipeline.StaticEngine{}
 
@@ -615,7 +615,7 @@ func TestPipelineCacheLinksDisabledThenEnabled(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	tmpDir := t.TempDir()
-	cacher := cache.New(tmpDir, 1*time.Hour)
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 	c := newTestClient(t)
 	eng := pipeline.StaticEngine{}
 

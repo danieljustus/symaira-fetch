@@ -73,6 +73,21 @@ symfetch https://example.com --profile firefox
 # With links table
 symfetch https://example.com --links
 
+# POST with JSON body
+symfetch https://api.example.com -X POST -H "Content-Type: application/json" -d '{"key":"value"}'
+
+# Custom proxy
+symfetch https://example.com --proxy socks5://localhost:1080
+
+# Respect robots.txt
+symfetch https://example.com --robots
+
+# Named session (persistent cookie jar)
+symfetch https://example.com --session my-session
+
+# Allow private/loopback addresses (dangerous, CLI-only)
+symfetch http://localhost:8080 --allow-private
+
 # Print version
 symfetch --version
 
@@ -121,9 +136,23 @@ Explicit CLI flags (`--no-cache`, `--cache-ttl`, `--concurrency`, etc.) take pre
 | Environment Variable | Config Field | Description |
 |---------------------|--------------|-------------|
 | `SYMFETCH_CACHE_DIR` | `cache.dir` | Override cache directory (default: `~/.cache/symfetch`) |
+| `SYMFETCH_CACHE_MAX_SIZE_MB` | `cache.max_size_mb` | Maximum cache size in MB (default: 100) |
 | `SYMFETCH_HTTP_PROFILE` | `http.profile` | Browser profile: chrome, firefox, honest |
 | `SYMFETCH_HTTP_TIMEOUT_SECONDS` | `http.timeout_seconds` | Request timeout in seconds |
 | `SYMFETCH_SECURITY_ALLOW_PRIVATE` | `security.allow_private` | Allow fetching private/loopback addresses |
+
+## Browser Fingerprint
+
+Symaira Fetch impersonates real browser TLS and HTTP/2 fingerprints to bypass basic bot-detection. The current target versions are:
+
+| Profile | Target | Notes |
+|---------|--------|-------|
+| Chrome | Chrome 135 | TLS/HTTP2 JA4 fingerprint, order pseudo-headers |
+| Firefox | Firefox | TLS/HTTP2 fingerprint pattern (no specific version pinned) |
+
+These fingerprints are maintained by the [azuretls](https://github.com/Noooste/azuretls-client) library (v1.13.2). The target Chrome version is updated quarterly as Chrome releases drift from the pinned fingerprint.
+
+> **Note:** TLS/HTTP2 fingerprinting passes basic bot-detection (Cloudflare, Akamai) but does **not** pass JavaScript challenges (Cloudflare Managed Challenge, Turnstile). See [Limitations](#limitations-v01) for details.
 
 ## Limitations (v0.1)
 
