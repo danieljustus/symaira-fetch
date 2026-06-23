@@ -141,6 +141,19 @@ Explicit CLI flags (`--no-cache`, `--cache-ttl`, `--concurrency`, etc.) take pre
 | `SYMFETCH_HTTP_TIMEOUT_SECONDS` | `http.timeout_seconds` | Request timeout in seconds |
 | `SYMFETCH_SECURITY_ALLOW_PRIVATE` | `security.allow_private` | Allow fetching private/loopback addresses |
 
+## Browser Fingerprint
+
+Symaira Fetch impersonates real browser TLS and HTTP/2 fingerprints to bypass basic bot-detection. The current target versions are:
+
+| Profile | Target | Notes |
+|---------|--------|-------|
+| Chrome | Chrome 135 | TLS/HTTP2 JA4 fingerprint, order pseudo-headers |
+| Firefox | Firefox | TLS/HTTP2 fingerprint pattern (no specific version pinned) |
+
+These fingerprints are maintained by the [azuretls](https://github.com/Noooste/azuretls-client) library (v1.13.2). The target Chrome version is updated quarterly as Chrome releases drift from the pinned fingerprint.
+
+> **Note:** TLS/HTTP2 fingerprinting passes basic bot-detection (Cloudflare, Akamai) but does **not** pass JavaScript challenges (Cloudflare Managed Challenge, Turnstile). See [Limitations](#limitations-v01) for details.
+
 ## Limitations (v0.1)
 
 - **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration.
