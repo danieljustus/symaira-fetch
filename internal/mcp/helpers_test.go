@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -159,5 +160,95 @@ func TestCategoriseError_Unknown(t *testing.T) {
 	}
 	if !errors.Is(got, err) {
 		t.Error("expected wrapped original error")
+	}
+}
+
+func TestFormatWithMeta_MarkdownFrontmatter(t *testing.T) {
+	res := &pipeline.Result{
+		Output: "# Hello World",
+		Meta: agentdom.Meta{
+			Title:      "Test Page",
+			StatusCode: 200,
+			EstTokens:  42,
+			FinalURL:   "https://example.com",
+			Truncated:  false,
+		},
+		Doc: &agentdom.Document{
+			URL:      "https://example.com",
+			Islands:  []agentdom.DataIsland{},
+		},
+	}
+
+	got := formatWithMeta(res, pipeline.FormatMarkdown, true)
+
+	if !strings.Contains(got, "---") {
+		t.Errorf("expected YAML frontmatter delimiters, got: %s", got)
+	}
+	if !strings.Contains(got, "title: Test Page") {
+		t.Errorf("expected title in frontmatter, got: %s", got)
+	}
+	if !strings.Contains(got, "> **Test Page**") {
+		t.Errorf("expected metadata header, got: %s", got)
+	}
+	if !strings.Contains(got, "# Hello World") {
+		t.Errorf("expected output content, got: %s", got)
+	}
+}
+
+func TestFormatWithMeta_MarkdownFrontmatterWithSchema(t *testing.T) {
+	res := &pipeline.Result{
+		Output: "# Content",
+		Meta: agentdom.Meta{
+			Title:      "Recipe Page",
+			StatusCode: 200,
+			EstTokens:  50,
+			FinalURL:   "https://example.com/recipe",
+		},
+		Doc: &agentdom.Document{
+			URL: "https://example.com/recipe",
+			Islands: []agentdom.DataIsland{
+				{
+					Source: "ld+json",
+					JSON:   json.RawMessage(`{"@type": "Recipe", "name": "Cake"}`),
+				},
+			},
+		},
+	}
+
+	got := formatWithMeta(res, pipeline.FormatMarkdown, true)
+
+	if !strings.Contains(got, "schema_type: Recipe") {
+		t.Errorf("expected schema_type in frontmatter, got: %s", got)
+	}
+}
+
+func TestValidateURLSchemeFTP(t *testing.T) {
+	err := validateURLScheme("ftp://example.com/file")
+	if err == nil {
+		t.Fatal("expected error for ftp scheme")
+	}
+	if !strings.Contains(err.Error(), "unsupported scheme") {
+		t.Errorf("expected unsupported scheme error, got: %v", err)
+	}
+}
+
+func TestValidateURLSchemeEmpty(t *testing.T) {
+	err := validateURLScheme("")
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+}
+
+func TestValidateURLSchemeHTTPS(t *testing.T) {
+	err := validateURLScheme("https://example.com")
+	if err != nil {
+		t.Errorf("expected no error for https, got: %v", err)
+	}
+}
+
+func TestValidateURLSchemeHTTP(t *testing.T) {
+	err := validateURLScheme("http://example.com")
+	if err != nil {
+		t.Errorf("expected no error for http, got: %v", err)
 	}
 }

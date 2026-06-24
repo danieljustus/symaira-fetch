@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/net/html"
 
@@ -566,5 +567,563 @@ func TestText_ChildWithNoText(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 1 {
 		t.Errorf("expected 1 line, got %d: %v", len(lines), lines)
+	}
+}
+
+func TestGenerateFrontmatter_Basic(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:     "Test Title",
+		FinalURL:  "https://example.com",
+		Lang:      "en",
+		EstTokens: 100,
+	}
+	doc := &agentdom.Document{
+		URL:  "https://example.com",
+		Islands: []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.HasPrefix(fm, "---\n") {
+		t.Errorf("expected frontmatter to start with ---, got: %s", fm)
+	}
+	if !strings.HasSuffix(fm, "---\n\n") {
+		t.Errorf("expected frontmatter to end with ---\\n\\n, got: %q", fm)
+	}
+	if !strings.Contains(fm, "title: Test Title") {
+		t.Errorf("expected title in frontmatter, got: %s", fm)
+	}
+	if !strings.Contains(fm, "url: https://example.com") {
+		t.Errorf("expected url in frontmatter, got: %s", fm)
+	}
+	if !strings.Contains(fm, "lang: en") {
+		t.Errorf("expected lang in frontmatter, got: %s", fm)
+	}
+	if !strings.Contains(fm, "tokens_est: 100") {
+		t.Errorf("expected tokens_est in frontmatter, got: %s", fm)
+	}
+	if !strings.Contains(fm, "fetched_at:") {
+		t.Errorf("expected fetched_at in frontmatter, got: %s", fm)
+	}
+	lines := strings.Split(fm, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "  fetched_at:") {
+			ts := strings.TrimPrefix(strings.TrimSpace(line), "fetched_at: ")
+			if _, err := time.Parse(time.RFC3339, ts); err != nil {
+				t.Errorf("expected valid RFC3339 timestamp, got: %s (err: %v)", ts, err)
+			}
+		}
+	}
+}
+
+func TestGenerateFrontmatter_FinalURLDifferent(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:     "Page",
+		FinalURL:  "https://example.com/redirected",
+		Lang:      "en",
+		EstTokens: 50,
+	}
+	doc := &agentdom.Document{
+		URL:      "https://example.com/original",
+		Islands:  []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "url: https://example.com/original") {
+		t.Errorf("expected original URL, got: %s", fm)
+	}
+	if !strings.Contains(fm, "final_url: https://example.com/redirected") {
+		t.Errorf("expected final_url when different from URL, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_FinalURLSame(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:     "Page",
+		FinalURL:  "https://example.com",
+		Lang:      "en",
+		EstTokens: 50,
+	}
+	doc := &agentdom.Document{
+		URL:      "https://example.com",
+		Islands:  []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "final_url:") {
+		t.Errorf("should not contain final_url when same as URL, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_NilIslands(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{URL: "https://example.com"}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "title: Page") {
+		t.Errorf("expected title, got: %s", fm)
+	}
+	if strings.Contains(fm, "schema_type:") {
+		t.Errorf("should not contain schema_type with nil islands, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_EmptyIslands(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL:     "https://example.com",
+		Islands: []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "schema_type:") {
+		t.Errorf("should not contain schema_type with empty islands, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_WithLDJSONIsland(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL: "https://example.com",
+		Islands: []agentdom.DataIsland{
+			{
+				Source: "ld+json",
+				JSON:   json.RawMessage(`{"@type": "Article", "headline": "Hello"}`),
+			},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "schema_type: Article") {
+		t.Errorf("expected schema_type Article, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_IslandTypeField(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL: "https://example.com",
+		Islands: []agentdom.DataIsland{
+			{
+				Source: "ld+json",
+				JSON:   json.RawMessage(`{"type": "Product", "name": "Widget"}`),
+			},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "schema_type: Product") {
+		t.Errorf("expected schema_type Product, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_IslandGraphType(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL: "https://example.com",
+		Islands: []agentdom.DataIsland{
+			{
+				Source: "ld+json",
+				JSON:   json.RawMessage(`{"@graph": [{"@type": "BreadcrumbList"}]}`),
+			},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "schema_type: BreadcrumbList") {
+		t.Errorf("expected schema_type BreadcrumbList, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_NonLDJSONIsland(t *testing.T) {
+	meta := agentdom.Meta{Title: "Page", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL: "https://example.com",
+		Islands: []agentdom.DataIsland{
+			{
+				Source: "__NEXT_DATA__",
+				JSON:   json.RawMessage(`{"@type": "Article"}`),
+			},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "schema_type:") {
+		t.Errorf("should not extract schema_type from non-ld+json island, got: %s", fm)
+	}
+}
+
+func TestExtractSchemaType_AtType(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"@type": "Recipe", "name": "Cake"}`))
+	if got != "Recipe" {
+		t.Errorf("expected 'Recipe', got %q", got)
+	}
+}
+
+func TestExtractSchemaType_TypeField(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"type": "Product", "name": "Widget"}`))
+	if got != "Product" {
+		t.Errorf("expected 'Product', got %q", got)
+	}
+}
+
+func TestExtractSchemaType_GraphType(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"@graph": [{"@type": "BreadcrumbList"}, {"@type": "Organization"}]}`))
+	if got != "BreadcrumbList" {
+		t.Errorf("expected 'BreadcrumbList', got %q", got)
+	}
+}
+
+func TestExtractSchemaType_GraphEmpty(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"@graph": []}`))
+	if got != "" {
+		t.Errorf("expected empty for empty graph, got %q", got)
+	}
+}
+
+func TestExtractSchemaType_GraphNonMapItem(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"@graph": ["string", 42]}`))
+	if got != "" {
+		t.Errorf("expected empty for non-map graph items, got %q", got)
+	}
+}
+
+func TestExtractSchemaType_GraphNoTypeInFirst(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"@graph": [{"name": "no type"}]}`))
+	if got != "" {
+		t.Errorf("expected empty when first graph item has no @type, got %q", got)
+	}
+}
+
+func TestExtractSchemaType_NoType(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{"name": "just a name", "value": 42}`))
+	if got != "" {
+		t.Errorf("expected empty for no type, got %q", got)
+	}
+}
+
+func TestExtractSchemaType_InvalidJSON(t *testing.T) {
+	got := extractSchemaType(json.RawMessage(`{invalid json`))
+	if got != "" {
+		t.Errorf("expected empty for invalid JSON, got %q", got)
+	}
+}
+
+func TestQuerySchema_AtTypeMatch(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Recipe", "name": "Chocolate Cake", "recipeYield": "8"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@Recipe:name")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Chocolate Cake"` {
+		t.Errorf("expected %q, got %q", `"Chocolate Cake"`, got)
+	}
+}
+
+func TestQuerySchema_TypeFieldMatch(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"type": "Product", "name": "Widget"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@Product:name")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Widget"` {
+		t.Errorf("expected %q, got %q", `"Widget"`, got)
+	}
+}
+
+func TestQuerySchema_GraphMatch(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@graph": [
+					{"@type": "Organization", "name": "ACME Corp"},
+					{"@type": "WebPage", "name": "Home"}
+				]
+			}`),
+		},
+	}
+
+	data, err := unmarshalIsland(islands[0].JSON)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !matchesType(data, "Organization") {
+		t.Error("expected matchesType to find Organization in @graph")
+	}
+	if !matchesType(data, "WebPage") {
+		t.Error("expected matchesType to find WebPage in @graph")
+	}
+	if matchesType(data, "Article") {
+		t.Error("expected matchesType to return false for non-existent type")
+	}
+}
+
+func TestQuerySchema_NestedField(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@type": "Product",
+				"name": "Widget",
+				"aggregateRating": {"ratingValue": 4.5, "reviewCount": 100}
+			}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@Product:aggregateRating.ratingValue")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "4.5" {
+		t.Errorf("expected 4.5, got %q", got)
+	}
+}
+
+func TestQuerySchema_CaseInsensitiveType(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "recipe", "name": "Cake"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@Recipe:name")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Cake"` {
+		t.Errorf("expected %q, got %q", `"Cake"`, got)
+	}
+}
+
+func TestQuerySchema_NoMatch(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Product", "name": "Widget"}`),
+		},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:name")
+	if err == nil {
+		t.Fatal("expected error for non-matching type")
+	}
+	if !strings.Contains(err.Error(), "no JSON-LD") {
+		t.Errorf("expected 'no JSON-LD' error, got: %v", err)
+	}
+}
+
+func TestQuerySchema_EmptyIslands(t *testing.T) {
+	_, err := QuerySchema([]agentdom.DataIsland{}, "@Recipe:name")
+	if err == nil {
+		t.Fatal("expected error for empty islands")
+	}
+}
+
+func TestQuerySchema_NonLDIslandSkipped(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "__NEXT_DATA__", JSON: json.RawMessage(`{"@type": "Recipe"}`)},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:name")
+	if err == nil {
+		t.Fatal("expected error when no ld+json islands")
+	}
+}
+
+func TestQuerySchema_InvalidJSONSkipped(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "ld+json", JSON: json.RawMessage(`{invalid`)},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:name")
+	if err == nil {
+		t.Fatal("expected error when all islands have invalid JSON")
+	}
+}
+
+func TestQuerySchema_InvalidPathNoAt(t *testing.T) {
+	_, err := QuerySchema([]agentdom.DataIsland{}, "Recipe:name")
+	if err == nil {
+		t.Fatal("expected error for path without @")
+	}
+	if !strings.Contains(err.Error(), "must start with @") {
+		t.Errorf("expected 'must start with @' error, got: %v", err)
+	}
+}
+
+func TestQuerySchema_InvalidPathNoColon(t *testing.T) {
+	_, err := QuerySchema([]agentdom.DataIsland{}, "@Recipe")
+	if err == nil {
+		t.Fatal("expected error for path without colon")
+	}
+	if !strings.Contains(err.Error(), "must have format @Type:path") {
+		t.Errorf("expected format error, got: %v", err)
+	}
+}
+
+func TestQuerySchema_MissingField(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Recipe", "name": "Cake"}`),
+		},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing field")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestQuerySchema_ArrayTraversalError(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Recipe", "steps": ["mix", "bake"]}`),
+		},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:steps.0")
+	if err == nil {
+		t.Fatal("expected error for array traversal")
+	}
+	if !strings.Contains(err.Error(), "cannot traverse into array") {
+		t.Errorf("expected 'cannot traverse into array' error, got: %v", err)
+	}
+}
+
+func TestQuerySchema_NilTypeField(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": null, "name": "Test"}`),
+		},
+	}
+
+	_, err := QuerySchema(islands, "@Recipe:name")
+	if err == nil {
+		t.Fatal("expected error when @type is null")
+	}
+}
+
+func TestTraversePath_DeepNesting(t *testing.T) {
+	data := json.RawMessage(`{"a": {"b": {"c": "deep"}}}`)
+	got, err := traversePath(data, "a.b.c")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"deep"` {
+		t.Errorf("expected %q, got %q", `"deep"`, got)
+	}
+}
+
+func TestTraversePath_NumericValue(t *testing.T) {
+	data := json.RawMessage(`{"count": 42}`)
+	got, err := traversePath(data, "count")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "42" {
+		t.Errorf("expected 42, got %q", got)
+	}
+}
+
+func TestTraversePath_BoolValue(t *testing.T) {
+	data := json.RawMessage(`{"active": true}`)
+	got, err := traversePath(data, "active")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "true" {
+		t.Errorf("expected true, got %q", got)
+	}
+}
+
+func TestTraversePath_NullValue(t *testing.T) {
+	data := json.RawMessage(`{"val": null}`)
+	got, err := traversePath(data, "val")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "null" {
+		t.Errorf("expected null, got %q", got)
+	}
+}
+
+func TestTraversePath_InvalidJSON(t *testing.T) {
+	_, err := traversePath(json.RawMessage(`{bad`), "field")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+	if !strings.Contains(err.Error(), "failed to parse") {
+		t.Errorf("expected parse error, got: %v", err)
+	}
+}
+
+// --- FormatMarkdownWithMeta tests ---
+
+func TestFormatMarkdownWithMeta_Basic(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:      "Test Page",
+		StatusCode: 200,
+		EstTokens:  42,
+		FinalURL:   "https://example.com",
+	}
+	got := FormatMarkdownWithMeta(meta, "# Hello")
+
+	if !strings.Contains(got, "> **Test Page**") {
+		t.Errorf("expected title in metadata, got: %s", got)
+	}
+	if !strings.Contains(got, "~42 tokens") {
+		t.Errorf("expected token count, got: %s", got)
+	}
+	if !strings.Contains(got, "> https://example.com") {
+		t.Errorf("expected final URL, got: %s", got)
+	}
+	if !strings.Contains(got, "# Hello") {
+		t.Errorf("expected output content, got: %s", got)
+	}
+	if strings.Contains(got, "truncated") {
+		t.Errorf("should not contain truncated warning, got: %s", got)
+	}
+}
+
+func TestFormatMarkdownWithMeta_Truncated(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:      "Page",
+		StatusCode: 200,
+		EstTokens:  100,
+		FinalURL:   "https://example.com",
+		Truncated:  true,
+	}
+	got := FormatMarkdownWithMeta(meta, "content")
+
+	if !strings.Contains(got, "truncated") {
+		t.Errorf("expected truncated warning, got: %s", got)
 	}
 }
