@@ -11,6 +11,16 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
 
+func TestStartServerInvalidProxy(t *testing.T) {
+	err := mcp.StartServer(fetch.ProfileHonest, "://invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid proxy")
+	}
+	if !strings.Contains(err.Error(), "init fetch client") {
+		t.Errorf("expected 'init fetch client' in error, got: %s", err.Error())
+	}
+}
+
 func TestMCPToolsListSchema(t *testing.T) {
 	frames := runRPC(t, []map[string]interface{}{
 		{"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
