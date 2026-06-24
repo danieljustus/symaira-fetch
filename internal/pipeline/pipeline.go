@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/dom"
@@ -16,6 +17,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/render"
 	"github.com/danieljustus/symaira-fetch/internal/robots"
 	"github.com/danieljustus/symaira-fetch/internal/semantic"
+	"golang.org/x/net/html"
 )
 
 // Format is the output format for the rendered result.
@@ -44,12 +46,15 @@ func ParseFormat(s string) Format {
 
 // Options configures the pipeline run.
 type Options struct {
-	Format   Format
-	Content  ContentOptions
-	Cache    CacheOptions
-	Profile  string
-	Session  string
-	Security SecurityOptions
+	Format      Format
+	Content     ContentOptions
+	Cache       CacheOptions
+	Profile     string
+	Session     string
+	Security    SecurityOptions
+	CSSSelector string // optional CSS selector for targeted extraction
+	Frontmatter bool   // optional YAML frontmatter output
+	SchemaPath  string // optional JSON-LD query path like "@Recipe:name"
 }
 
 // ContentOptions controls content extraction limits and scoring.
@@ -187,13 +192,17 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
 	rawIslands := semantic.ExtractIslands(tree.Root, o.Content.MaxIslandBytes)
 
-	// 5. Filter DOM
 	dom.Filter(tree.Root)
 
-	// 6. Score and pick best block
-	bestNode := semantic.BestBlock(tree.Root, o.Content.CharThreshold)
-
-	// 7. Build agentdom
+	var bestNode *html.Node
+	if o.CSSSelector != "" {
+		bestNode = extractBySelector(tree.Root, o.CSSSelector)
+		if bestNode == nil {
+			return nil, &SelectorError{Selector: o.CSSSelector}
+		}
+	} else {
+		bestNode = semantic.BestBlock(tree.Root, o.Content.CharThreshold)
+	}
 	doc := &agentdom.Document{
 		URL:      rawURL,
 		FinalURL: resp.FinalURL,
@@ -224,9 +233,17 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	case FormatHTML:
 		output = rawHTMLFallback(resp.Body)
 	default:
-		output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
-		if err != nil {
-			return nil, &RenderError{Format: "markdown", Err: err}
+		if o.SchemaPath != "" {
+			result, queryErr := render.QuerySchema(doc.Islands, o.SchemaPath)
+			if queryErr != nil {
+				return nil, &SchemaError{Path: o.SchemaPath, Err: queryErr.Error()}
+			}
+			output = result
+		} else {
+			output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
+			if err != nil {
+				return nil, &RenderError{Format: "markdown", Err: err}
+			}
 		}
 	}
 
@@ -296,4 +313,23 @@ func IslandSummary(islands []agentdom.DataIsland) string {
 		sb.WriteString(fmt.Sprintf("- **%s**: (raw JSON, %d bytes)\n", island.Source, len(island.JSON)))
 	}
 	return sb.String()
+}
+
+func extractBySelector(root *html.Node, selector string) *html.Node {
+	doc := goquery.NewDocumentFromNode(root)
+	sel := doc.Find(selector)
+	if sel.Length() == 0 {
+		return nil
+	}
+
+	container := &html.Node{
+		Type: html.ElementNode,
+		Data: "div",
+	}
+	sel.Each(func(_ int, s *goquery.Selection) {
+		for _, n := range s.Nodes {
+			container.AppendChild(n)
+		}
+	})
+	return container
 }

@@ -35,7 +35,10 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"max_chars": {"type": "integer", "description": "Maximum characters in output (default 20000)"},
 				"include_links": {"type": "boolean", "description": "Append a Links section with all hrefs (default false)"},
 				"raw": {"type": "boolean", "description": "Return raw decoded response body without semantic processing"},
-				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30, max 120)", "maximum": 120}
+				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30, max 120)", "maximum": 120},
+				"css_selector": {"type": "string", "description": "CSS selector to extract specific elements (e.g., 'table.pricing', '.article-body')"},
+				"frontmatter": {"type": "boolean", "description": "Prepend YAML frontmatter with metadata (title, url, fetched_at, lang, tokens)"},
+				"schema_path": {"type": "string", "description": "JSON-LD query path (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue')"}
 			},
 			"required": ["url"]
 		}`),
@@ -91,6 +94,10 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 
 		includeLinks, _ := args["include_links"].(bool)
 		raw, _ := args["raw"].(bool)
+		frontmatter, _ := args["frontmatter"].(bool)
+
+		cssSelector, _ := args["css_selector"].(string)
+		schemaPath, _ := args["schema_path"].(string)
 
 		timeoutSec := 30
 		if v, ok := args["timeout_seconds"].(float64); ok && v > 0 {
@@ -118,12 +125,15 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 				MaxChars:     maxChars,
 				IncludeLinks: includeLinks,
 			},
+			CSSSelector: cssSelector,
+			Frontmatter: frontmatter,
+			SchemaPath:  schemaPath,
 		})
 		if err != nil {
 			return nil, categoriseError(err)
 		}
 
-		return formatWithMeta(res, format), nil
+		return formatWithMeta(res, format, frontmatter), nil
 	}
 }
 
@@ -201,9 +211,14 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 	}
 }
 
-func formatWithMeta(res *pipeline.Result, format pipeline.Format) string {
+func formatWithMeta(res *pipeline.Result, format pipeline.Format, frontmatter bool) string {
 	if format == pipeline.FormatMarkdown {
-		return render.FormatMarkdownWithMeta(res.Meta, res.Output)
+		output := res.Output
+		if frontmatter {
+			fm := render.GenerateFrontmatter(res.Meta, res.Doc)
+			output = fm + output
+		}
+		return render.FormatMarkdownWithMeta(res.Meta, output)
 	}
 	return res.Output
 }

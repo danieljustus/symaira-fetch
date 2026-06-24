@@ -25,7 +25,7 @@ func TestFormatWithMeta_Markdown(t *testing.T) {
 		},
 	}
 
-	got := formatWithMeta(res, pipeline.FormatMarkdown)
+	got := formatWithMeta(res, pipeline.FormatMarkdown, false)
 
 	if !strings.Contains(got, "> **Test Page** · 200 · ~42 tokens") {
 		t.Errorf("expected metadata header, got: %s", got)
@@ -53,7 +53,7 @@ func TestFormatWithMeta_MarkdownTruncated(t *testing.T) {
 		},
 	}
 
-	got := formatWithMeta(res, pipeline.FormatMarkdown)
+	got := formatWithMeta(res, pipeline.FormatMarkdown, false)
 
 	if !strings.Contains(got, "· ⚠ truncated") {
 		t.Errorf("expected truncated warning, got: %s", got)
@@ -66,7 +66,7 @@ func TestFormatWithMeta_JSON(t *testing.T) {
 		Meta:   agentdom.Meta{Title: "Page"},
 	}
 
-	got := formatWithMeta(res, pipeline.FormatJSON)
+	got := formatWithMeta(res, pipeline.FormatJSON, false)
 
 	if got != `{"key": "value"}` {
 		t.Errorf("expected raw output for JSON format, got: %s", got)
@@ -79,7 +79,7 @@ func TestFormatWithMeta_Text(t *testing.T) {
 		Meta:   agentdom.Meta{Title: "Page"},
 	}
 
-	got := formatWithMeta(res, pipeline.FormatText)
+	got := formatWithMeta(res, pipeline.FormatText, false)
 
 	if got != "Plain text content" {
 		t.Errorf("expected raw output for text format, got: %s", got)
