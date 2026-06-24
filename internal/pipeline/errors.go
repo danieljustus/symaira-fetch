@@ -51,3 +51,20 @@ type BlockedError struct {
 func (e *BlockedError) Error() string {
 	return fmt.Sprintf("blocked %s: %s", e.URL, e.Reason)
 }
+
+type SelectorError struct {
+	Selector string
+}
+
+func (e *SelectorError) Error() string {
+	return fmt.Sprintf("selector %q matched no elements", e.Selector)
+}
+
+type SchemaError struct {
+	Path string
+	Err  string
+}
+
+func (e *SchemaError) Error() string {
+	return fmt.Sprintf("schema query %q: %s", e.Path, e.Err)
+}

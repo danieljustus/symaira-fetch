@@ -20,7 +20,9 @@ require (
 	github.com/Noooste/uquic-go v1.0.5 // indirect
 	github.com/Noooste/utls v1.3.20 // indirect
 	github.com/Noooste/websocket v1.0.3 // indirect
+	github.com/PuerkitoBio/goquery v1.12.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -36,4 +38,5 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
