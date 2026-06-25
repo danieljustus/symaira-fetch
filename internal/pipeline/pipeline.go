@@ -192,6 +192,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
 	rawIslands := semantic.ExtractIslands(tree.Root, o.Content.MaxIslandBytes)
 
+	spaSkeleton := DetectSPASkeleton(resp.Body, tree.Root, rawIslands)
+
 	dom.Filter(tree.Root)
 
 	var bestNode *html.Node
@@ -247,18 +249,50 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
+	detectedThin := isThinContent(bestNode, o.Content.CharThreshold, spaSkeleton)
+	if detectedThin {
+		if fbResult, fbResp, ok := tryFallback(ctx, c, eng, rawURL, o); ok {
+			fbCharCount := utf8.RuneCountInString(fbResult.Output)
+			if fbCharCount >= o.Content.CharThreshold {
+				slog.Debug("thin-content fallback applied", "url", rawURL, "chars", fbCharCount)
+
+				// Cache under original request key per acceptance criteria.
+				if cacher != nil {
+					profile := o.Profile
+					if profile == "" {
+						profile = "chrome"
+					}
+					ck := o.Content.ContentKey()
+					if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(fbResult.Output), cache.Meta{
+						URL:         rawURL,
+						FinalURL:    fbResult.Meta.FinalURL,
+						StatusCode:  fbResult.Meta.StatusCode,
+						ContentType: fbResp.ContentType,
+						Protocol:    fbResult.Meta.Protocol,
+						Headers:     fbResp.Headers,
+					}); err != nil {
+						slog.Debug("cache put failed (fallback)", "url", rawURL, "error", err)
+					}
+				}
+
+				return fbResult, nil
+			}
+		}
+	}
+
 	charCount := utf8.RuneCountInString(output)
 	truncated := charCount >= o.Content.MaxChars
 
 	meta := agentdom.Meta{
-		FinalURL:   resp.FinalURL,
-		StatusCode: resp.StatusCode,
-		Title:      tree.Title,
-		Lang:       tree.Lang,
-		CharCount:  charCount,
-		EstTokens:  charCount / 4,
-		Truncated:  truncated,
-		Protocol:   resp.Protocol,
+		FinalURL:             resp.FinalURL,
+		StatusCode:           resp.StatusCode,
+		Title:                tree.Title,
+		Lang:                 tree.Lang,
+		CharCount:            charCount,
+		EstTokens:            charCount / 4,
+		Truncated:            truncated,
+		Protocol:             resp.Protocol,
+		LikelyClientRendered: detectedThin,
 	}
 
 	if cacher != nil {

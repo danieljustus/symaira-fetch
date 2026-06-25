@@ -1127,3 +1127,36 @@ func TestFormatMarkdownWithMeta_Truncated(t *testing.T) {
 		t.Errorf("expected truncated warning, got: %s", got)
 	}
 }
+
+func TestFormatMarkdownWithMeta_LikelyClientRendered(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:                "SPA Shell",
+		StatusCode:           200,
+		EstTokens:            5,
+		FinalURL:             "https://example.com/app",
+		LikelyClientRendered: true,
+	}
+	got := FormatMarkdownWithMeta(meta, "<nav>links only</nav>")
+
+	if !strings.Contains(got, "⚠ likely client-rendered") {
+		t.Errorf("expected likely client-rendered warning, got: %s", got)
+	}
+	if !strings.Contains(got, "> **SPA Shell**") {
+		t.Errorf("expected title in metadata, got: %s", got)
+	}
+}
+
+func TestFormatMarkdownWithMeta_ContentRich_NoClientRenderedWarning(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:                "Article",
+		StatusCode:           200,
+		EstTokens:            500,
+		FinalURL:             "https://example.com/article",
+		LikelyClientRendered: false,
+	}
+	got := FormatMarkdownWithMeta(meta, "# Real content here")
+
+	if strings.Contains(got, "likely client-rendered") {
+		t.Errorf("should not contain likely client-rendered warning for content-rich page, got: %s", got)
+	}
+}

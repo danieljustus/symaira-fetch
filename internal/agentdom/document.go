@@ -35,12 +35,13 @@ type Document struct {
 
 // Meta holds response metadata returned alongside the rendered output.
 type Meta struct {
-	FinalURL   string `json:"final_url"`
-	StatusCode int    `json:"status_code"`
-	Title      string `json:"title,omitempty"`
-	Lang       string `json:"lang,omitempty"`
-	CharCount  int    `json:"char_count"`
-	EstTokens  int    `json:"est_tokens"` // chars / 4
-	Truncated  bool   `json:"truncated"`
-	Protocol   string `json:"protocol,omitempty"`
+	FinalURL             string `json:"final_url"`
+	StatusCode           int    `json:"status_code"`
+	Title                string `json:"title,omitempty"`
+	Lang                 string `json:"lang,omitempty"`
+	CharCount            int    `json:"char_count"`
+	EstTokens            int    `json:"est_tokens"` // chars / 4
+	Truncated            bool   `json:"truncated"`
+	Protocol             string `json:"protocol,omitempty"`
+	LikelyClientRendered bool   `json:"likely_client_rendered"`
 }
