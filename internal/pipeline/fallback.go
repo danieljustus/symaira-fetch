@@ -16,9 +16,14 @@ import (
 )
 
 // isThinContent returns true when the extracted main-content node has text
-// below charThreshold AND a high link-to-text ratio (>0.5), indicating a
-// client-rendered SPA shell whose real content lives in an LLM-friendly twin.
-func isThinContent(node *html.Node, charThreshold int) bool {
+// below charThreshold AND a high link-to-text ratio (>0.5), or when a
+// structural SPA skeleton signal is present, indicating a client-rendered
+// SPA shell whose real content lives in an LLM-friendly twin.
+//
+// spaSkeleton is the output of DetectSPASkeleton, computed on the raw
+// unfiltered HTML before dom.Filter. When true it acts as an additional
+// trigger for thin content even when the link density alone is below 0.5.
+func isThinContent(node *html.Node, charThreshold int, spaSkeleton bool) bool {
 	textLen := countTextContent(node)
 	if textLen >= charThreshold {
 		return false // substantial text — not thin
@@ -28,7 +33,7 @@ func isThinContent(node *html.Node, charThreshold int) bool {
 	}
 	linkLen := countLinkContent(node)
 	linkDensity := float64(linkLen) / float64(textLen)
-	return linkDensity > 0.5
+	return linkDensity > 0.5 || spaSkeleton
 }
 
 // deriveMDTwinURL appends .md to the URL path, preserving query and fragment.

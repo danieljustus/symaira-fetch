@@ -192,6 +192,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	// 4. Extract data islands BEFORE filtering (islands are in <script> tags)
 	rawIslands := semantic.ExtractIslands(tree.Root, o.Content.MaxIslandBytes)
 
+	spaSkeleton := DetectSPASkeleton(resp.Body, tree.Root, rawIslands)
+
 	dom.Filter(tree.Root)
 
 	var bestNode *html.Node
@@ -247,7 +249,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
-	detectedThin := isThinContent(bestNode, o.Content.CharThreshold)
+	detectedThin := isThinContent(bestNode, o.Content.CharThreshold, spaSkeleton)
 	if detectedThin {
 		if fbResult, fbResp, ok := tryFallback(ctx, c, eng, rawURL, o); ok {
 			fbCharCount := utf8.RuneCountInString(fbResult.Output)
