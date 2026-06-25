@@ -1,9 +1,16 @@
 package pipeline
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/danieljustus/symaira-fetch/internal/dom"
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
+	"github.com/danieljustus/symaira-fetch/internal/robots"
 	"golang.org/x/net/html"
 )
 
@@ -174,5 +181,320 @@ func TestCountLinkContent(t *testing.T) {
 	got := countLinkContent(node)
 	if got != 14 {
 		t.Errorf("countLinkContent = %d, want 14", got)
+	}
+}
+
+type urlSwitchClient struct {
+	responses   map[string]*fetch.Response
+	errors      map[string]error
+	defaultResp *fetch.Response
+	defaultErr  error
+}
+
+func (c *urlSwitchClient) Fetch(_ context.Context, req fetch.Request) (*fetch.Response, error) {
+	if c.errors != nil {
+		if err, ok := c.errors[req.URL]; ok {
+			return nil, err
+		}
+	}
+	if c.responses != nil {
+		if resp, ok := c.responses[req.URL]; ok {
+			return resp, nil
+		}
+	}
+	return c.defaultResp, c.defaultErr
+}
+
+func (c *urlSwitchClient) Close() error { return nil }
+
+func mustParseTree(t *testing.T, rawHTML []byte) *dom.Tree {
+	t.Helper()
+	tree, err := dom.Parse(rawHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+func defaultTestOpts() Options {
+	return Options{
+		Format:  FormatMarkdown,
+		Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	}
+}
+
+func TestTryFallback_SSRFBlockedMDTwin(t *testing.T) {
+	c := &fakeClient{resp: &fetch.Response{}}
+	eng := &fakeEngine{}
+	opts := Options{
+		Format:  FormatMarkdown,
+		Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000},
+		Security: SecurityOptions{
+			AllowPrivate: false,
+		},
+	}
+
+	result, resp, ok := tryFallback(context.Background(), c, eng, "http://127.0.0.1:9999/page", opts)
+	if ok {
+		t.Error("expected fallback to fail for SSRF-blocked private URL")
+	}
+	if result != nil {
+		t.Error("expected nil result")
+	}
+	if resp != nil {
+		t.Error("expected nil response")
+	}
+}
+
+func TestTryFallback_MDTwin404_FallsToLLMsTxt(t *testing.T) {
+	llmsBody := []byte("<html><body><p>LLMs fallback content from the site-level file that is long enough to render.</p></body></html>")
+	llmsTree := mustParseTree(t, llmsBody)
+
+	client := &urlSwitchClient{
+		responses: map[string]*fetch.Response{
+			"https://example.com/page.md": {
+				StatusCode: 404,
+				Body:       []byte("<html><body>Not Found</body></html>"),
+				FinalURL:   "https://example.com/page.md",
+			},
+			"https://example.com/llms.txt": {
+				StatusCode: 200,
+				Body:       llmsBody,
+				Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+				FinalURL:   "https://example.com/llms.txt",
+			},
+		},
+	}
+	eng := &fakeEngine{tree: llmsTree}
+	opts := defaultTestOpts()
+
+	result, resp, ok := tryFallback(context.Background(), client, eng, "https://example.com/page", opts)
+	if !ok {
+		t.Fatal("expected fallback to succeed via llms.txt after .md 404")
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 from llms.txt, got %d", resp.StatusCode)
+	}
+}
+
+func TestFetchAndProcess_SSRFBlocked(t *testing.T) {
+	c := &fakeClient{resp: &fetch.Response{}}
+	eng := &fakeEngine{}
+	opts := Options{
+		Format:  FormatMarkdown,
+		Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000},
+		Security: SecurityOptions{
+			AllowPrivate: false,
+		},
+	}
+
+	result, resp, ok := fetchAndProcess(
+		context.Background(), c, eng,
+		"http://192.168.1.1/admin", "http://192.168.1.1/admin",
+		opts,
+	)
+	if ok {
+		t.Error("expected fetchAndProcess to fail when SSRF guard blocks URL")
+	}
+	if result != nil {
+		t.Error("expected nil result")
+	}
+	if resp != nil {
+		t.Error("expected nil response")
+	}
+}
+
+func TestFetchAndProcess_RobotsBlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("User-agent: *\nDisallow: /\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte("<html><body><p>Blocked content</p></body></html>"))
+	}))
+	defer srv.Close()
+
+	checker := robots.NewChecker().WithPrivate(true)
+	c := &fakeClient{resp: &fetch.Response{
+		StatusCode: 200,
+		Body:       []byte("<html><body><p>Blocked content</p></body></html>"),
+		FinalURL:   srv.URL + "/page",
+		Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+	}}
+	tree := mustParseTree(t, []byte("<html><body><p>Blocked content</p></body></html>"))
+	eng := &fakeEngine{tree: tree}
+
+	opts := Options{
+		Format:  FormatMarkdown,
+		Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000},
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			Robots:        true,
+			RobotsChecker: checker,
+		},
+	}
+
+	result, resp, ok := fetchAndProcess(
+		context.Background(), c, eng,
+		srv.URL+"/page", srv.URL+"/page",
+		opts,
+	)
+	if ok {
+		t.Error("expected fetchAndProcess to fail when robots.txt disallows URL")
+	}
+	if result != nil {
+		t.Error("expected nil result")
+	}
+	if resp != nil {
+		t.Error("expected nil response")
+	}
+}
+
+func TestFetchAndProcess_FetchError(t *testing.T) {
+	c := &fakeClient{err: errors.New("connection refused")}
+	eng := &fakeEngine{}
+	opts := defaultTestOpts()
+
+	result, resp, ok := fetchAndProcess(
+		context.Background(), c, eng,
+		"https://example.com/page", "https://example.com/page",
+		opts,
+	)
+	if ok {
+		t.Error("expected fetchAndProcess to fail when fetch returns error")
+	}
+	if result != nil {
+		t.Error("expected nil result")
+	}
+	if resp != nil {
+		t.Error("expected nil response")
+	}
+}
+
+func TestFetchAndProcess_HTTP4xxError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+	}{
+		{"404", 404},
+		{"500", 500},
+		{"503", 503},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &fakeClient{resp: &fetch.Response{
+				StatusCode: tt.statusCode,
+				Body:       []byte("Error"),
+				FinalURL:   "https://example.com/page",
+			}}
+			eng := &fakeEngine{}
+			opts := defaultTestOpts()
+
+			result, resp, ok := fetchAndProcess(
+				context.Background(), c, eng,
+				"https://example.com/page", "https://example.com/page",
+				opts,
+			)
+			if ok {
+				t.Errorf("expected fetchAndProcess to fail for HTTP %d", tt.statusCode)
+			}
+			if result != nil {
+				t.Error("expected nil result")
+			}
+			if resp != nil {
+				t.Error("expected nil response")
+			}
+		})
+	}
+}
+
+func TestFetchAndProcess_MaterializeError(t *testing.T) {
+	c := &fakeClient{resp: &fetch.Response{
+		StatusCode: 200,
+		Body:       []byte("<html><body>content</body></html>"),
+		FinalURL:   "https://example.com/page",
+		Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+	}}
+	eng := &fakeEngine{err: errors.New("parse failed")}
+	opts := defaultTestOpts()
+
+	result, resp, ok := fetchAndProcess(
+		context.Background(), c, eng,
+		"https://example.com/page", "https://example.com/page",
+		opts,
+	)
+	if ok {
+		t.Error("expected fetchAndProcess to fail when Materialize returns error")
+	}
+	if result != nil {
+		t.Error("expected nil result")
+	}
+	if resp != nil {
+		t.Error("expected nil response")
+	}
+}
+
+func TestFetchAndProcess_MarkdownRenderPath(t *testing.T) {
+	rawHTML := []byte(`<html><body>
+		<article>
+			<h1>Test Article</h1>
+			<p>This is test content for the markdown rendering path in fetchAndProcess.</p>
+		</article>
+	</body></html>`)
+	tree := mustParseTree(t, rawHTML)
+
+	c := &fakeClient{resp: &fetch.Response{
+		StatusCode: 200,
+		Body:       rawHTML,
+		FinalURL:   "https://example.com/article",
+		Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+	}}
+	eng := &fakeEngine{tree: tree}
+	opts := defaultTestOpts()
+	opts.Format = FormatMarkdown
+
+	result, resp, ok := fetchAndProcess(
+		context.Background(), c, eng,
+		"https://example.com/article", "https://example.com/article",
+		opts,
+	)
+	if !ok {
+		t.Fatal("expected fetchAndProcess to succeed for valid markdown render path")
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if result.Output == "" {
+		t.Error("expected non-empty output from Markdown render")
+	}
+}
+
+func TestDeriveMDTwinURL_EmptyString(t *testing.T) {
+	got := deriveMDTwinURL("")
+	want := ".md"
+	if got != want {
+		t.Errorf("deriveMDTwinURL(%q) = %q, want %q", "", got, want)
+	}
+}
+
+func TestDeriveLLMsTxtURL_EmptyString(t *testing.T) {
+	got := deriveLLMsTxtURL("")
+	want := "/llms.txt"
+	if got != want {
+		t.Errorf("deriveLLMsTxtURL(%q) = %q, want %q", "", got, want)
 	}
 }

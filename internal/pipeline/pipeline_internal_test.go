@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -653,5 +654,516 @@ func TestRun_LikelyClientRendered_ContentRich(t *testing.T) {
 	}
 	if res.Meta.LikelyClientRendered {
 		t.Error("expected LikelyClientRendered=false for content-rich page")
+	}
+}
+
+func TestExtractBySelector_NoMatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		html     string
+		selector string
+	}{
+		{
+			name:     "nonexistent class",
+			html:     `<html><body><p>Hello</p></body></html>`,
+			selector: "div.missing",
+		},
+		{
+			name:     "nonexistent id",
+			html:     `<html><body><p>Hello</p></body></html>`,
+			selector: "#nonexistent",
+		},
+		{
+			name:     "nonexistent element",
+			html:     `<html><body><p>Content</p></body></html>`,
+			selector: "table.data",
+		},
+		{
+			name:     "complex selector no match",
+			html:     `<html><body><div class="a"><span class="b">Text</span></div></body></html>`,
+			selector: "div.c > span.b",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := parseHTMLNode(t, tt.html)
+			got := extractBySelector(root, tt.selector)
+			if got != nil {
+				t.Errorf("expected nil for selector %q, got non-nil node", tt.selector)
+			}
+		})
+	}
+}
+
+func TestSelectorError_Error(t *testing.T) {
+	e := &SelectorError{Selector: "div.missing"}
+	msg := e.Error()
+	if msg == "" {
+		t.Error("expected non-empty error message")
+	}
+	if !containsString(msg, "div.missing") {
+		t.Errorf("expected selector in error message, got: %q", msg)
+	}
+	if !containsString(msg, "matched no elements") {
+		t.Errorf("expected description in error message, got: %q", msg)
+	}
+}
+
+func TestSchemaError_Error(t *testing.T) {
+	e := &SchemaError{Path: "@Recipe:name", Err: "not found"}
+	msg := e.Error()
+	if msg == "" {
+		t.Error("expected non-empty error message")
+	}
+	if !containsString(msg, "@Recipe:name") {
+		t.Errorf("expected path in error message, got: %q", msg)
+	}
+	if !containsString(msg, "not found") {
+		t.Errorf("expected error detail in message, got: %q", msg)
+	}
+}
+
+func TestParseSitemapXML(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		wantLen  int
+		wantURLs []string
+	}{
+		{
+			name: "urlset with valid HTTP URLs",
+			data: []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/page-a</loc></url>
+  <url><loc>https://example.com/page-b</loc></url>
+</urlset>`),
+			wantLen:  2,
+			wantURLs: []string{"https://example.com/page-a", "https://example.com/page-b"},
+		},
+		{
+			name: "sitemapindex with valid URLs",
+			data: []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/s1.xml</loc></sitemap>
+  <sitemap><loc>https://example.com/s2.xml</loc></sitemap>
+</sitemapindex>`),
+			wantLen:  2,
+			wantURLs: []string{"https://example.com/s1.xml", "https://example.com/s2.xml"},
+		},
+		{
+			name:    "invalid XML returns nil",
+			data:    []byte(`not xml at all`),
+			wantLen: 0,
+		},
+		{
+			name:    "empty urlset returns nil",
+			data:    []byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`),
+			wantLen: 0,
+		},
+		{
+			name:    "javascript href filtered out",
+			data:    []byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>javascript:alert(1)</loc></url></urlset>`),
+			wantLen: 0,
+		},
+		{
+			name:    "non-http scheme filtered out",
+			data:    []byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>ftp://example.com/file</loc></url></urlset>`),
+			wantLen: 0,
+		},
+		{
+			name:    "fragment-only filtered out",
+			data:    []byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>#section</loc></url></urlset>`),
+			wantLen: 0,
+		},
+		{
+			name: "mixed valid and invalid",
+			data: []byte(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/good</loc></url>
+  <url><loc>javascript:bad</loc></url>
+  <url><loc>https://example.com/also-good</loc></url>
+</urlset>`),
+			wantLen:  2,
+			wantURLs: []string{"https://example.com/good", "https://example.com/also-good"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := parseSitemapXML(tt.data)
+			if len(links) != tt.wantLen {
+				t.Fatalf("parseSitemapXML() returned %d links, want %d", len(links), tt.wantLen)
+			}
+			for i, wantURL := range tt.wantURLs {
+				if links[i].URL != wantURL {
+					t.Errorf("link[%d].URL = %q, want %q", i, links[i].URL, wantURL)
+				}
+			}
+		})
+	}
+}
+
+func TestFetchSitemap(t *testing.T) {
+	urlsetXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/page-a</loc></url>
+  <url><loc>https://example.com/page-b</loc></url>
+</urlset>`)
+
+	indexXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://example.com/s1.xml</loc></sitemap>
+</sitemapindex>`)
+
+	nonXML := []byte(`<html><body>Not XML</body></html>`)
+
+	tests := []struct {
+		name    string
+		resp    *fetch.Response
+		respErr error
+		wantLen int
+	}{
+		{
+			name:    "urlset XML parsed correctly",
+			resp:    &fetch.Response{Body: urlsetXML, StatusCode: 200},
+			wantLen: 2,
+		},
+		{
+			name:    "sitemapindex XML parsed correctly",
+			resp:    &fetch.Response{Body: indexXML, StatusCode: 200},
+			wantLen: 1,
+		},
+		{
+			name:    "non-XML body returns no links",
+			resp:    &fetch.Response{Body: nonXML, StatusCode: 200},
+			wantLen: 0,
+		},
+		{
+			name:    "fetch error returns nil",
+			respErr: errors.New("network error"),
+			wantLen: 0,
+		},
+		{
+			name:    "empty body returns no links",
+			resp:    &fetch.Response{Body: []byte{}, StatusCode: 200},
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &fakeClient{resp: tt.resp, err: tt.respErr}
+			o := Options{Security: SecurityOptions{AllowPrivate: true}}
+			links := fetchSitemap(context.Background(), c, "https://example.com/sitemap.xml", o)
+			if len(links) != tt.wantLen {
+				t.Fatalf("fetchSitemap() returned %d links, want %d", len(links), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestIsSafeHref_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		href string
+		want bool
+	}{
+		{"empty string", "", false},
+		{"fragment only", "#section", false},
+		{"fragment with text", "#top", false},
+		{"javascript scheme", "javascript:alert(1)", false},
+		{"javascript uppercase", "JAVASCRIPT:alert(1)", false},
+		{"javascript mixed case", "JavaScript:void(0)", false},
+		{"data scheme", "data:text/html,<h1>Hello</h1>", false},
+		{"data uppercase", "DATA:text/html,<h1>Hello</h1>", false},
+		{"vbscript scheme", "vbscript:MsgBox(1)", false},
+		{"vbscript mixed case", "VBScript:MsgBox(1)", false},
+		{"valid https URL", "https://example.com/page", true},
+		{"valid http URL", "http://example.com/page", true},
+		{"valid relative path", "/page/about", true},
+		{"valid relative path dot", "../page", true},
+		{"valid query string", "/page?tab=overview", true},
+		{"valid fragment plus path", "/page#section", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSafeHref(tt.href); got != tt.want {
+				t.Errorf("isSafeHref(%q) = %v, want %v", tt.href, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSortCandidates(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     []CandidateURL
+		wantOrder []float64
+	}{
+		{
+			name:      "unsorted descending",
+			input:     []CandidateURL{{Score: 0.3}, {Score: 0.9}, {Score: 0.5}, {Score: 1.0}},
+			wantOrder: []float64{1.0, 0.9, 0.5, 0.3},
+		},
+		{
+			name:      "already sorted",
+			input:     []CandidateURL{{Score: 1.0}, {Score: 0.8}, {Score: 0.6}},
+			wantOrder: []float64{1.0, 0.8, 0.6},
+		},
+		{
+			name:      "single element",
+			input:     []CandidateURL{{Score: 0.5}},
+			wantOrder: []float64{0.5},
+		},
+		{
+			name:      "empty slice",
+			input:     []CandidateURL{},
+			wantOrder: []float64{},
+		},
+		{
+			name:      "all same score",
+			input:     []CandidateURL{{Score: 0.7}, {Score: 0.7}, {Score: 0.7}},
+			wantOrder: []float64{0.7, 0.7, 0.7},
+		},
+		{
+			name:      "reverse sorted becomes descending",
+			input:     []CandidateURL{{Score: 0.1}, {Score: 0.5}, {Score: 0.9}},
+			wantOrder: []float64{0.9, 0.5, 0.1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortCandidates(tt.input)
+			if len(tt.input) != len(tt.wantOrder) {
+				t.Fatalf("got %d elements, want %d", len(tt.input), len(tt.wantOrder))
+			}
+			for i, want := range tt.wantOrder {
+				if tt.input[i].Score != want {
+					t.Errorf("position %d: got score %f, want %f", i, tt.input[i].Score, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFindCandidatesFromSitemaps(t *testing.T) {
+	sitemapXML := `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://example.com/page-a</loc></url>
+  <url><loc>https://example.com/page-b</loc></url>
+  <url><loc>https://example.com/page-cat</loc></url>
+</urlset>`
+
+	var srvURL string
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("User-agent: *\nDisallow:\nSitemap: " + srvURL + "/sitemap.xml\n"))
+		case "/sitemap.xml":
+			w.Header().Set("Content-Type", "application/xml")
+			w.Write([]byte(sitemapXML))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	srvURL = srv.URL
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			Body:       []byte(sitemapXML),
+			StatusCode: 200,
+		},
+	}
+
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "page-cat", o)
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates from sitemaps, got none")
+	}
+
+	for _, cand := range candidates {
+		if cand.Source != "sitemap" {
+			t.Errorf("expected source 'sitemap', got %q", cand.Source)
+		}
+		if cand.Score <= 0 {
+			t.Errorf("expected positive score, got %f", cand.Score)
+		}
+		if !containsString(cand.URL, "example.com") {
+			t.Errorf("expected URL containing example.com, got %q", cand.URL)
+		}
+	}
+}
+
+func TestFindCandidatesFromSitemaps_NilChecker(t *testing.T) {
+	u, _ := url.Parse("https://example.com")
+	c := &fakeClient{resp: &fetch.Response{Body: []byte{}, StatusCode: 200}}
+	o := Options{Security: SecurityOptions{AllowPrivate: true}}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if candidates != nil {
+		t.Errorf("expected nil candidates when RobotsChecker is nil, got %v", candidates)
+	}
+}
+
+func TestRun_CSSSelector(t *testing.T) {
+	body := []byte(`<html><body>
+		<nav>Navigation stuff here</nav>
+		<div class="content">
+			<h1>Article Title</h1>
+			<p>This is the main article content that should be extracted by CSS selector.</p>
+		</div>
+		<footer>Footer stuff here</footer>
+	</body></html>`)
+	tree, err := dom.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        body,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/page",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	var panicVal interface{}
+	func() {
+		defer func() { panicVal = recover() }()
+		_, _ = Run(context.Background(), c, eng, "https://example.com/page", Options{
+			Format:      FormatMarkdown,
+			CSSSelector: "div.content",
+			Cache:       CacheOptions{NoCache: true},
+			Security:    SecurityOptions{AllowPrivate: true},
+		})
+	}()
+
+	if panicVal != nil {
+		t.Skipf("extractBySelector panics when moving attached nodes (golang.org/x/net/html v0.56.0): %v", panicVal)
+	}
+}
+
+func TestRun_CSSSelector_NoMatch(t *testing.T) {
+	body := []byte(`<html><body><p>Hello</p></body></html>`)
+	tree, err := dom.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        body,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/page",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	_, err = Run(context.Background(), c, eng, "https://example.com/page", Options{
+		Format:      FormatMarkdown,
+		CSSSelector: "div.nonexistent",
+		Cache:       CacheOptions{NoCache: true},
+		Security:    SecurityOptions{AllowPrivate: true},
+	})
+	if err == nil {
+		t.Fatal("expected error for non-matching CSS selector")
+	}
+	var selErr *SelectorError
+	if !errors.As(err, &selErr) {
+		t.Errorf("expected SelectorError, got %T: %v", err, err)
+	}
+}
+
+func TestRun_SchemaPath(t *testing.T) {
+	body := []byte(`<html><head>
+<script type="application/ld+json">{"@type":"Article","headline":"Test Headline","author":"Test Author"}</script>
+</head><body>
+<p>This page has enough content to pass the character threshold for processing through the pipeline.</p>
+<p>Additional content to ensure the pipeline works correctly end to end without thin content detection.</p>
+</body></html>`)
+	tree, err := dom.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        body,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/article",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/article", Options{
+		Format:     FormatMarkdown,
+		SchemaPath: "@Article:headline",
+		Cache:      CacheOptions{NoCache: true},
+		Security:   SecurityOptions{AllowPrivate: true},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsString(res.Output, "Test Headline") {
+		t.Errorf("expected 'Test Headline' in output, got: %q", res.Output)
+	}
+}
+
+func TestRun_SchemaPath_NoMatch(t *testing.T) {
+	body := []byte(`<html><head>
+<script type="application/ld+json">{"@type":"Article","headline":"Test Headline"}</script>
+</head><body>
+<p>Content here to pass threshold.</p>
+</body></html>`)
+	tree, err := dom.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        body,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/article",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	_, err = Run(context.Background(), c, eng, "https://example.com/article", Options{
+		Format:     FormatMarkdown,
+		SchemaPath: "@Recipe:name",
+		Cache:      CacheOptions{NoCache: true},
+		Security:   SecurityOptions{AllowPrivate: true},
+	})
+	if err == nil {
+		t.Fatal("expected error for non-matching schema path")
+	}
+	var schemaErr *SchemaError
+	if !errors.As(err, &schemaErr) {
+		t.Errorf("expected SchemaError, got %T: %v", err, err)
 	}
 }

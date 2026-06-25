@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	"gopkg.in/yaml.v3"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/semantic"
@@ -758,6 +759,159 @@ func TestGenerateFrontmatter_NonLDJSONIsland(t *testing.T) {
 
 	if strings.Contains(fm, "schema_type:") {
 		t.Errorf("should not extract schema_type from non-ld+json island, got: %s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_LDJSONIslandWithAtType(t *testing.T) {
+	meta := agentdom.Meta{Title: "Article Page", Lang: "en", EstTokens: 200}
+	doc := &agentdom.Document{
+		URL: "https://example.com/article",
+		Islands: []agentdom.DataIsland{
+			{
+				Source: "ld+json",
+				JSON:   json.RawMessage(`{"@type": "NewsArticle", "headline": "Breaking"}`),
+			},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "schema_type: NewsArticle") {
+		t.Errorf("expected schema_type NewsArticle, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "title: Article Page") {
+		t.Errorf("expected title in frontmatter, got:\n%s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_MultipleIslandsLDJSONWithGraphType(t *testing.T) {
+	meta := agentdom.Meta{Title: "Multi Island Page", Lang: "ja", EstTokens: 300}
+	doc := &agentdom.Document{
+		URL: "https://example.com/multi",
+		Islands: []agentdom.DataIsland{
+			{Source: "__NEXT_DATA__", JSON: json.RawMessage(`{"page":"home"}`)},
+			{Source: "ld+json", JSON: json.RawMessage(`{"@graph": [{"@type": "WebSite", "name": "ACME"}]}`)},
+			{Source: "custom", JSON: json.RawMessage(`{"foo":"bar"}`)},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "schema_type: WebSite") {
+		t.Errorf("expected schema_type WebSite from @graph, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "lang: ja") {
+		t.Errorf("expected lang ja, got:\n%s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_MultipleIslandsNoLDJSON(t *testing.T) {
+	meta := agentdom.Meta{Title: "No Schema Page", Lang: "de", EstTokens: 50}
+	doc := &agentdom.Document{
+		URL: "https://example.com/noschema",
+		Islands: []agentdom.DataIsland{
+			{Source: "__NEXT_DATA__", JSON: json.RawMessage(`{"props":{}}`)},
+			{Source: "__PRELOADED_STATE__", JSON: json.RawMessage(`{"state":true}`)},
+		},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "schema_type:") {
+		t.Errorf("should not contain schema_type when no ld+json islands, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "title: No Schema Page") {
+		t.Errorf("expected title, got:\n%s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_FinalURLDiffersFromDocURL(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:     "Redirected",
+		FinalURL:  "https://example.com/dest",
+		Lang:      "en",
+		EstTokens: 80,
+	}
+	doc := &agentdom.Document{
+		URL:     "https://example.com/src",
+		Islands: []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.Contains(fm, "url: https://example.com/src") {
+		t.Errorf("expected original URL, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "final_url: https://example.com/dest") {
+		t.Errorf("expected final_url when meta.FinalURL differs from doc.URL, got:\n%s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_FinalURLMatchesDocURL(t *testing.T) {
+	meta := agentdom.Meta{
+		Title:     "Same URL Page",
+		FinalURL:  "https://example.com/page",
+		Lang:      "en",
+		EstTokens: 60,
+	}
+	doc := &agentdom.Document{
+		URL:     "https://example.com/page",
+		Islands: []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "final_url:") {
+		t.Errorf("should omit final_url when meta.FinalURL equals doc.URL, got:\n%s", fm)
+	}
+}
+
+func TestGenerateFrontmatter_NilIslandsNoPanic(t *testing.T) {
+	meta := agentdom.Meta{Title: "Nil Island Test", Lang: "fr", EstTokens: 10}
+	doc := &agentdom.Document{URL: "https://example.com/nil-islands"}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if !strings.HasPrefix(fm, "---\n") {
+		t.Errorf("expected frontmatter to start with ---, got:\n%s", fm)
+	}
+	if !strings.HasSuffix(fm, "---\n\n") {
+		t.Errorf("expected frontmatter to end with ---\\n\\n, got: %q", fm)
+	}
+	if !strings.Contains(fm, "title: Nil Island Test") {
+		t.Errorf("expected title, got:\n%s", fm)
+	}
+	if strings.Contains(fm, "schema_type:") {
+		t.Errorf("should not contain schema_type with nil islands, got:\n%s", fm)
+	}
+	inner := strings.TrimPrefix(fm, "---\n")
+	inner = strings.TrimSuffix(inner, "---\n\n")
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(inner), &parsed); err != nil {
+		t.Fatalf("frontmatter is not valid YAML: %v\n%s", err, fm)
+	}
+}
+
+func TestGenerateFrontmatter_EmptyTitle(t *testing.T) {
+	meta := agentdom.Meta{Title: "", Lang: "en", EstTokens: 10}
+	doc := &agentdom.Document{
+		URL:     "https://example.com",
+		Islands: []agentdom.DataIsland{},
+	}
+
+	fm := GenerateFrontmatter(meta, doc)
+
+	if strings.Contains(fm, "title:") {
+		t.Errorf("empty title should be omitted (omitempty), got:\n%s", fm)
+	}
+	if !strings.HasPrefix(fm, "---\n") {
+		t.Errorf("expected valid frontmatter start, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "url: https://example.com") {
+		t.Errorf("expected url field, got:\n%s", fm)
+	}
+	if !strings.Contains(fm, "fetched_at:") {
+		t.Errorf("expected fetched_at field, got:\n%s", fm)
 	}
 }
 
