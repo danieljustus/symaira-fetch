@@ -812,3 +812,104 @@ func TestPipelineThinContentFallbackCached(t *testing.T) {
 		t.Errorf("expected no additional fetches on cache hit, got %d total fetches (was %d after first run)", fetchCount, fetchCountAfterFirst)
 	}
 }
+
+func TestPipeline404WithReachableAncestor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/a/b/c":
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		case "/a/b/":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body><p>ancestor content</p></body></html>"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	var fetchErr *pipeline.FetchError
+	if !errors.As(err, &fetchErr) {
+		t.Fatalf("expected *FetchError, got %T: %v", err, err)
+	}
+	if fetchErr.Recovery == nil {
+		t.Fatal("expected recovery hints, got nil")
+	}
+	if !strings.Contains(fetchErr.Recovery.NearestAncestor, "/a/b/") {
+		t.Errorf("expected ancestor containing '/a/b/', got %q", fetchErr.Recovery.NearestAncestor)
+	}
+	if fetchErr.Recovery.AncestorStatus != http.StatusOK {
+		t.Errorf("expected ancestor status 200, got %d", fetchErr.Recovery.AncestorStatus)
+	}
+}
+
+func TestPipeline404WithNoReachableAncestor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	var fetchErr *pipeline.FetchError
+	if !errors.As(err, &fetchErr) {
+		t.Fatalf("expected *FetchError, got %T: %v", err, err)
+	}
+	if fetchErr.Recovery != nil {
+		t.Errorf("expected nil recovery hints when all ancestors 404, got %+v", fetchErr.Recovery)
+	}
+}
+
+func TestPipeline200NoAncestorProbing(t *testing.T) {
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body><p>ok</p></body></html>"))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for 200 response, got: %v", err)
+	}
+	if fetchCount != 1 {
+		t.Errorf("expected exactly 1 fetch for 200 response (no ancestor probing), got %d", fetchCount)
+	}
+}

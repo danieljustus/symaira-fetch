@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -181,7 +182,11 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+		fe := &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			fe.Recovery = probeAncestors(ctx, c, rawURL, o)
+		}
+		return nil, fe
 	}
 
 	tree, err := eng.Materialize(ctx, resp)
@@ -366,4 +371,103 @@ func extractBySelector(root *html.Node, selector string) *html.Node {
 		}
 	})
 	return container
+}
+
+func probeAncestors(ctx context.Context, c fetch.Client, rawURL string, o Options) *RecoveryHints {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segments) <= 1 {
+		return nil
+	}
+
+	for i := len(segments) - 1; i >= 1; i-- {
+		ancestorPath := "/" + strings.Join(segments[:i], "/") + "/"
+		ancestorURL := *u
+		ancestorURL.Path = ancestorPath
+		ancestorURL.RawPath = ""
+		ancestorURL.RawQuery = ""
+		ancestorStr := ancestorURL.String()
+
+		if !o.Security.AllowPrivate {
+			if err := fetch.CheckSSRF(ancestorStr); err != nil {
+				slog.Debug("ancestor SSRF blocked", "url", ancestorStr)
+				return nil
+			}
+		}
+
+		if o.Security.Robots && o.Security.RobotsChecker != nil {
+			allowed, err := o.Security.RobotsChecker.Check(ctx, "symfetch", ancestorStr)
+			if err != nil {
+				slog.Debug("ancestor robots check error", "url", ancestorStr, "error", err)
+			} else if !allowed {
+				slog.Debug("ancestor blocked by robots.txt", "url", ancestorStr)
+				return nil
+			}
+		}
+
+		resp, err := c.Fetch(ctx, fetch.Request{
+			URL:          ancestorStr,
+			AllowPrivate: o.Security.AllowPrivate,
+			Session:      o.Session,
+		})
+		if err != nil {
+			slog.Debug("ancestor probe error", "url", ancestorStr, "error", err)
+			return nil
+		}
+
+		if resp.StatusCode < 400 {
+			return &RecoveryHints{
+				NearestAncestor: ancestorStr,
+				AncestorStatus:  resp.StatusCode,
+			}
+		}
+	}
+
+	rootURL := *u
+	rootURL.Path = "/"
+	rootURL.RawPath = ""
+	rootURL.RawQuery = ""
+	rootStr := rootURL.String()
+
+	if !o.Security.AllowPrivate {
+		if err := fetch.CheckSSRF(rootStr); err != nil {
+			return nil
+		}
+	}
+
+	if o.Security.Robots && o.Security.RobotsChecker != nil {
+		allowed, err := o.Security.RobotsChecker.Check(ctx, "symfetch", rootStr)
+		if err != nil {
+			slog.Debug("root robots check error", "url", rootStr, "error", err)
+		} else if !allowed {
+			return nil
+		}
+	}
+
+	resp, err := c.Fetch(ctx, fetch.Request{
+		URL:          rootStr,
+		AllowPrivate: o.Security.AllowPrivate,
+		Session:      o.Session,
+	})
+	if err != nil {
+		return nil
+	}
+
+	if resp.StatusCode < 400 {
+		return &RecoveryHints{
+			NearestAncestor: rootStr,
+			AncestorStatus:  resp.StatusCode,
+		}
+	}
+
+	return nil
 }

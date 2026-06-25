@@ -4,9 +4,15 @@ import (
 	"fmt"
 )
 
+type RecoveryHints struct {
+	NearestAncestor string // nearest ancestor URL that returned status < 400
+	AncestorStatus  int    // HTTP status of that ancestor
+}
+
 type FetchError struct {
-	URL string
-	Err error
+	URL     string
+	Err     error
+	Recovery *RecoveryHints // nil when no recovery hint is available
 }
 
 func (e *FetchError) Error() string {

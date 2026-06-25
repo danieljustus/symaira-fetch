@@ -240,6 +240,9 @@ func categoriseError(err error) error {
 			return fmt.Errorf("[too_large] %w", err)
 		}
 		if strings.Contains(msg, "HTTP 4") {
+			if fetchErr.Recovery != nil {
+				return fmt.Errorf("[http_4xx] %w (nearest reachable ancestor: %s [%d])", err, fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
+			}
 			return fmt.Errorf("[http_4xx] %w", err)
 		}
 		if strings.Contains(msg, "HTTP 5") {
