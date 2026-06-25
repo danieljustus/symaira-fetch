@@ -505,11 +505,11 @@ func findCandidatesFromAncestor(resp *fetch.Response, ancestorStr, failedSegment
 	var links []ancestorLink
 	doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
-		if !exists || href == "" || href[0] == '#' || strings.HasPrefix(href, "javascript:") {
+		if !exists || !isSafeHref(href) {
 			return
 		}
 		resolved := base.ResolveReference(&url.URL{Path: href})
-		if resolved == nil {
+		if resolved == nil || !isHTTPScheme(resolved.Scheme) {
 			return
 		}
 		title := strings.TrimSpace(s.Text())
@@ -723,7 +723,11 @@ func parseSitemapXML(data []byte) []ancestorLink {
 	if err := xml.Unmarshal(data, &urls); err == nil && len(urls.URLs) > 0 {
 		var links []ancestorLink
 		for _, u := range urls.URLs {
-			if u.Loc != "" {
+			if u.Loc != "" && isSafeHref(u.Loc) {
+				parsed, err := url.Parse(u.Loc)
+				if err != nil || parsed == nil || !isHTTPScheme(parsed.Scheme) {
+					continue
+				}
 				links = append(links, ancestorLink{URL: u.Loc})
 			}
 		}
@@ -733,11 +737,34 @@ func parseSitemapXML(data []byte) []ancestorLink {
 	if err := xml.Unmarshal(data, &idx); err == nil && len(idx.Sitemaps) > 0 {
 		var links []ancestorLink
 		for _, sm := range idx.Sitemaps {
-			if sm.Loc != "" {
+			if sm.Loc != "" && isSafeHref(sm.Loc) {
+				parsed, err := url.Parse(sm.Loc)
+				if err != nil || parsed == nil || !isHTTPScheme(parsed.Scheme) {
+					continue
+				}
 				links = append(links, ancestorLink{URL: sm.Loc})
 			}
 		}
 		return links
 	}
 	return nil
+}
+
+// isSafeHref reports whether href is a candidate for recovery suggestion.
+// It rejects empty values, fragment-only anchors, and executable/data pseudo-schemes
+// (javascript:, data:, vbscript:) to avoid reflecting attacker-controlled URLs.
+func isSafeHref(href string) bool {
+	if href == "" || href[0] == '#' {
+		return false
+	}
+	lower := strings.ToLower(href)
+	return !strings.HasPrefix(lower, "javascript:") &&
+		!strings.HasPrefix(lower, "data:") &&
+		!strings.HasPrefix(lower, "vbscript:")
+}
+
+// isHTTPScheme reports whether scheme is http or https, the only schemes recovery
+// suggestions are allowed to surface.
+func isHTTPScheme(scheme string) bool {
+	return scheme == "http" || scheme == "https"
 }
