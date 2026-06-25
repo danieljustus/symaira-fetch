@@ -657,3 +657,158 @@ func TestPipelineCacheLinksDisabledThenEnabled(t *testing.T) {
 		t.Error("expected different output when include_links toggles")
 	}
 }
+
+func TestPipelineThinContentFallbackToMDTwin(t *testing.T) {
+	spaHTML, err := os.ReadFile(filepath.Join("testdata", "spa_shell.html"))
+	if err != nil {
+		t.Fatalf("testdata/spa_shell.html: %v", err)
+	}
+	mdContent, err := os.ReadFile(filepath.Join("testdata", "spa_shell.md"))
+	if err != nil {
+		t.Fatalf("testdata/spa_shell.md: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if strings.HasSuffix(r.URL.Path, ".md") {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write(mdContent)
+			return
+		}
+		w.Write(spaHTML)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	res, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/dashboard", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			CharThreshold: 500,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(res.Output, "Dashboard Guide") {
+		t.Errorf("expected fallback to .md twin content, got:\n%s", res.Output[:min(500, len(res.Output))])
+	}
+	if !strings.Contains(res.Output, "Active Users") {
+		t.Errorf("expected real article content from .md twin, got:\n%s", res.Output[:min(500, len(res.Output))])
+	}
+}
+
+func TestPipelineRichContentNoFallback(t *testing.T) {
+	srv := serveFile(t, "news_article.html")
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	hitCount := 0
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount++
+		data, _ := os.ReadFile(filepath.Join("testdata", "news_article.html"))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
+	}))
+	t.Cleanup(srv2.Close)
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			CharThreshold: 500,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if hitCount > 1 {
+		t.Errorf("expected no fallback fetch for rich content, got %d fetches", hitCount)
+	}
+}
+
+func TestPipelineThinContentFallbackCached(t *testing.T) {
+	spaHTML, err := os.ReadFile(filepath.Join("testdata", "spa_shell.html"))
+	if err != nil {
+		t.Fatalf("testdata/spa_shell.html: %v", err)
+	}
+	mdContent, err := os.ReadFile(filepath.Join("testdata", "spa_shell.md"))
+	if err != nil {
+		t.Fatalf("testdata/spa_shell.md: %v", err)
+	}
+
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if strings.HasSuffix(r.URL.Path, ".md") {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write(mdContent)
+			return
+		}
+		w.Write(spaHTML)
+	}))
+	t.Cleanup(srv.Close)
+
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	originalURL := srv.URL + "/dashboard"
+
+	res1, err := pipeline.Run(context.Background(), c, eng, originalURL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			CharThreshold: 500,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res1.Output, "Dashboard Guide") {
+		t.Errorf("first run: expected fallback content, got:\n%s", res1.Output[:min(500, len(res1.Output))])
+	}
+
+	fetchCountAfterFirst := fetchCount
+
+	res2, err := pipeline.Run(context.Background(), c, eng, originalURL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			CharThreshold: 500,
+		},
+		Cache: pipeline.CacheOptions{
+			Instance: cacher,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res2.Output, "Dashboard Guide") {
+		t.Errorf("second run: expected cached fallback content, got:\n%s", res2.Output[:min(500, len(res2.Output))])
+	}
+	if fetchCount != fetchCountAfterFirst {
+		t.Errorf("expected no additional fetches on cache hit, got %d total fetches (was %d after first run)", fetchCount, fetchCountAfterFirst)
+	}
+}

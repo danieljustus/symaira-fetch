@@ -247,6 +247,36 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
+	if isThinContent(bestNode, o.Content.CharThreshold) {
+		if fbResult, fbResp, ok := tryFallback(ctx, c, eng, rawURL, o); ok {
+			fbCharCount := utf8.RuneCountInString(fbResult.Output)
+			if fbCharCount >= o.Content.CharThreshold {
+				slog.Debug("thin-content fallback applied", "url", rawURL, "chars", fbCharCount)
+
+				// Cache under original request key per acceptance criteria.
+				if cacher != nil {
+					profile := o.Profile
+					if profile == "" {
+						profile = "chrome"
+					}
+					ck := o.Content.ContentKey()
+					if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(fbResult.Output), cache.Meta{
+						URL:         rawURL,
+						FinalURL:    fbResult.Meta.FinalURL,
+						StatusCode:  fbResult.Meta.StatusCode,
+						ContentType: fbResp.ContentType,
+						Protocol:    fbResult.Meta.Protocol,
+						Headers:     fbResp.Headers,
+					}); err != nil {
+						slog.Debug("cache put failed (fallback)", "url", rawURL, "error", err)
+					}
+				}
+
+				return fbResult, nil
+			}
+		}
+	}
+
 	charCount := utf8.RuneCountInString(output)
 	truncated := charCount >= o.Content.MaxChars
 
