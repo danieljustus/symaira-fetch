@@ -26,8 +26,9 @@ type rule struct {
 }
 
 type group struct {
-	agents []string
-	rules  []rule
+	agents   []string
+	rules    []rule
+	sitemaps []string
 }
 
 type cacheEntry struct {
@@ -202,6 +203,16 @@ func parse(content string) []group {
 			if current != nil && value != "" {
 				current.rules = append(current.rules, rule{path: value, allowed: true})
 			}
+
+		case "sitemap":
+			if value != "" {
+				if current == nil {
+					g := group{agents: []string{"*"}}
+					groups = append(groups, g)
+					current = &groups[len(groups)-1]
+				}
+				current.sitemaps = append(current.sitemaps, value)
+			}
 		}
 	}
 
@@ -255,6 +266,39 @@ func isAllowed(groups []group, userAgent, path string) bool {
 	}
 
 	return allowed
+}
+
+func (c *Checker) Sitemaps(ctx context.Context, userAgent, rawURL string) ([]string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("robots: parse url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, nil
+	}
+	domain := u.Scheme + "://" + u.Host
+	groups, err := c.groupsForDomain(ctx, domain)
+	if err != nil {
+		var blocked *fetch.ErrBlockedPrivate
+		if errors.As(err, &blocked) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	var sitemaps []string
+	for _, g := range groups {
+		for _, agent := range g.agents {
+			matched := agent == "*" || strings.Contains(strings.ToLower(userAgent), agent)
+			if !matched {
+				continue
+			}
+			sitemaps = append(sitemaps, g.sitemaps...)
+		}
+	}
+	return sitemaps, nil
 }
 
 func matchPath(pattern, path string) bool {
