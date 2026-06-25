@@ -486,3 +486,138 @@ func TestCheckerInvalidURL(t *testing.T) {
 		t.Error("expected fail-open (allowed=true) for invalid URL")
 	}
 }
+
+func TestParseSitemapEntries(t *testing.T) {
+	content := `
+User-agent: *
+Disallow: /admin/
+Sitemap: https://example.com/sitemap1.xml
+Sitemap: https://example.com/sitemap2.xml
+`
+	groups := parse(content)
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+	if len(groups[0].sitemaps) != 2 {
+		t.Fatalf("expected 2 sitemaps, got %d", len(groups[0].sitemaps))
+	}
+	if groups[0].sitemaps[0] != "https://example.com/sitemap1.xml" {
+		t.Errorf("sitemap 0 = %q", groups[0].sitemaps[0])
+	}
+	if groups[0].sitemaps[1] != "https://example.com/sitemap2.xml" {
+		t.Errorf("sitemap 1 = %q", groups[0].sitemaps[1])
+	}
+}
+
+func TestParseSitemapBeforeUserAgent(t *testing.T) {
+	content := `
+Sitemap: https://example.com/sitemap.xml
+User-agent: *
+Disallow: /admin/
+`
+	groups := parse(content)
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(groups))
+	}
+	if len(groups[0].sitemaps) != 1 {
+		t.Fatalf("expected 1 sitemap, got %d", len(groups[0].sitemaps))
+	}
+	if groups[0].sitemaps[0] != "https://example.com/sitemap.xml" {
+		t.Errorf("sitemap = %q", groups[0].sitemaps[0])
+	}
+}
+
+func TestCheckerSitemapsBasic(t *testing.T) {
+	robotsTxt := `
+User-agent: *
+Disallow: /admin/
+Sitemap: https://example.com/sitemap1.xml
+Sitemap: https://example.com/sitemap2.xml
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, robotsTxt)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewChecker().WithPrivate(true)
+	ctx := context.Background()
+
+	sitemaps, err := c.Sitemaps(ctx, "symfetch", srv.URL+"/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sitemaps) != 2 {
+		t.Fatalf("expected 2 sitemaps, got %d", len(sitemaps))
+	}
+	if sitemaps[0] != "https://example.com/sitemap1.xml" {
+		t.Errorf("sitemap 0 = %q", sitemaps[0])
+	}
+}
+
+func TestCheckerSitemapsNoSitemaps(t *testing.T) {
+	robotsTxt := `
+User-agent: *
+Disallow: /admin/
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, robotsTxt)
+	}))
+	defer srv.Close()
+
+	c := NewChecker().WithPrivate(true)
+	ctx := context.Background()
+
+	sitemaps, err := c.Sitemaps(ctx, "symfetch", srv.URL+"/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sitemaps) != 0 {
+		t.Errorf("expected 0 sitemaps, got %d", len(sitemaps))
+	}
+}
+
+func TestCheckerSitemapsPrivateBlocked(t *testing.T) {
+	c := NewChecker()
+	ctx := context.Background()
+
+	_, err := c.Sitemaps(ctx, "Bot", "http://127.0.0.1:9999/page")
+	if err == nil {
+		t.Error("expected error for private URL")
+	}
+}
+
+func TestCheckerSitemapsNonHTTP(t *testing.T) {
+	c := NewChecker()
+	ctx := context.Background()
+
+	sitemaps, err := c.Sitemaps(ctx, "Bot", "ftp://example.com/file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sitemaps) != 0 {
+		t.Errorf("expected 0 sitemaps for non-HTTP, got %d", len(sitemaps))
+	}
+}
+
+func TestCheckerSitemaps404RobotsTxt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewChecker().WithPrivate(true)
+	ctx := context.Background()
+
+	sitemaps, err := c.Sitemaps(ctx, "Bot", srv.URL+"/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sitemaps) != 0 {
+		t.Errorf("expected 0 sitemaps when robots.txt 404, got %d", len(sitemaps))
+	}
+}

@@ -4,9 +4,18 @@ import (
 	"fmt"
 )
 
+// CandidateURL is a suggested replacement URL discovered during 404 recovery.
+type CandidateURL struct {
+	URL    string  // absolute candidate URL
+	Title  string  // link text or <title> of the page, if available
+	Source string  // provenance: "ancestor-links" or "sitemap"
+	Score  float64 // 0–1 similarity score; higher is better
+}
+
 type RecoveryHints struct {
 	NearestAncestor string // nearest ancestor URL that returned status < 400
 	AncestorStatus  int    // HTTP status of that ancestor
+	Candidates      []CandidateURL
 }
 
 type FetchError struct {

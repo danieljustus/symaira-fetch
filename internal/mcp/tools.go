@@ -241,7 +241,15 @@ func categoriseError(err error) error {
 		}
 		if strings.Contains(msg, "HTTP 4") {
 			if fetchErr.Recovery != nil {
-				return fmt.Errorf("[http_4xx] %w (nearest reachable ancestor: %s [%d])", err, fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
+				base := fmt.Sprintf("[http_4xx] %%v (nearest reachable ancestor: %s [%d])", fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
+				if len(fetchErr.Recovery.Candidates) > 0 {
+					candURLs := make([]string, 0, len(fetchErr.Recovery.Candidates))
+					for _, cand := range fetchErr.Recovery.Candidates {
+						candURLs = append(candURLs, cand.URL)
+					}
+					base += fmt.Sprintf("; candidates: %s", strings.Join(candURLs, ", "))
+				}
+				return fmt.Errorf(base, err)
 			}
 			return fmt.Errorf("[http_4xx] %w", err)
 		}

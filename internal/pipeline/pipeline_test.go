@@ -15,6 +15,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
+	"github.com/danieljustus/symaira-fetch/internal/robots"
 )
 
 func serveFile(t *testing.T, name string) *httptest.Server {
@@ -911,5 +912,160 @@ func TestPipeline200NoAncestorProbing(t *testing.T) {
 	}
 	if fetchCount != 1 {
 		t.Errorf("expected exactly 1 fetch for 200 response (no ancestor probing), got %d", fetchCount)
+	}
+}
+
+func TestPipeline404WithAncestorLinkMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/a/b/c":
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		case "/a/b/":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<html><body>
+<p>Index page</p>
+<a href="/a/b/cat">Cat Info</a>
+<a href="/a/b/dog">Dog Info</a>
+<a href="/a/b/other">Other</a>
+</body></html>`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	var fetchErr *pipeline.FetchError
+	if !errors.As(err, &fetchErr) {
+		t.Fatalf("expected *FetchError, got %T: %v", err, err)
+	}
+	if fetchErr.Recovery == nil {
+		t.Fatal("expected recovery hints, got nil")
+	}
+	if len(fetchErr.Recovery.Candidates) == 0 {
+		t.Fatal("expected candidates from ancestor links, got none")
+	}
+
+	foundCat := false
+	for _, c := range fetchErr.Recovery.Candidates {
+		if strings.Contains(c.URL, "/a/b/cat") {
+			foundCat = true
+			if c.Source != "ancestor-links" {
+				t.Errorf("expected source 'ancestor-links', got %q", c.Source)
+			}
+			if c.Score <= 0 {
+				t.Errorf("expected positive score, got %f", c.Score)
+			}
+		}
+	}
+	if !foundCat {
+		t.Error("expected /a/b/cat to be a candidate")
+	}
+}
+
+func TestPipeline404WithNoMatchingLinks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/a/b/c":
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		case "/a/b/":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<html><body>
+<p>Index page</p>
+<a href="/a/b/xyzzy">Completely Different</a>
+<a href="/a/b/abcdef">Another Unrelated</a>
+</body></html>`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	var fetchErr *pipeline.FetchError
+	if !errors.As(err, &fetchErr) {
+		t.Fatalf("expected *FetchError, got %T: %v", err, err)
+	}
+	if fetchErr.Recovery == nil {
+		t.Fatal("expected recovery hints, got nil")
+	}
+	if len(fetchErr.Recovery.Candidates) != 0 {
+		t.Errorf("expected no candidates when links don't match, got %d", len(fetchErr.Recovery.Candidates))
+	}
+}
+
+func TestPipeline404SitemapAbsentFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		switch r.URL.Path {
+		case "/a/b/c":
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		case "/a/b/":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`<html><body><p>Index</p></body></html>`))
+		case "/robots.txt":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("User-agent: *\nDisallow:\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	eng := pipeline.StaticEngine{}
+
+	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+			Robots:       true,
+			RobotsChecker: robots.NewChecker().WithPrivate(true),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	var fetchErr *pipeline.FetchError
+	if !errors.As(err, &fetchErr) {
+		t.Fatalf("expected *FetchError, got %T: %v", err, err)
+	}
+	if fetchErr.Recovery == nil {
+		t.Fatal("expected recovery hints, got nil")
+	}
+	if len(fetchErr.Recovery.Candidates) != 0 {
+		t.Errorf("expected no candidates when sitemap absent and no matching links, got %d", len(fetchErr.Recovery.Candidates))
 	}
 }
