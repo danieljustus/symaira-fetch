@@ -29,6 +29,12 @@ URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content S
 - **Browser-impersonating TLS** — Chrome/Firefox JA4/HTTP2 fingerprints via [azuretls](https://github.com/Noooste/azuretls-client)
 - **Semantic DOM pipeline** — DomFilter → content scoring → 8-category classification → TokenCompressor → Markdown/JSON
 - **Data island extraction** — `__NEXT_DATA__`, `application/ld+json`, `__PRELOADED_STATE__` without JS execution
+- **CSS selector extraction** — Bypass the semantic heuristic and extract content matching a CSS selector (selectable via MCP `css_selector` parameter)
+- **YAML frontmatter** — Prepend structured YAML frontmatter (`title`, `url`, `fetched_at`, `lang`, `schema_type`) to Markdown output
+- **JSON-LD schema query** — Query structured data on the page with dot-path expressions (e.g. `@type`, `name`)
+- **Thin-content auto-fallback** — When a page returns a navigation shell or SPA skeleton, automatically retries with `.md` twin or site-level `llms.txt` for richer LLM-friendly content
+- **SPA skeleton detection** — Heuristic detection of client-rendered single-page apps that return near-empty HTML shells
+- **4xx recovery hints** — On HTTP 4xx errors, probes ancestor paths and sitemaps to suggest nearest reachable alternatives
 - **MCP server** — JSON-RPC 2.0 over stdio, works with Claude Code and any MCP client
 - **CGO-free** — cross-compiles to Linux/macOS/Windows amd64+arm64
 - **SSRF guard** — blocks private/loopback addresses in MCP mode
@@ -120,6 +126,14 @@ Available MCP tools:
 | `fetch_url` | Fetch a single URL, returns Markdown/JSON/text |
 | `fetch_batch` | Fetch up to 20 URLs concurrently |
 
+**`fetch_url` optional parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `css_selector` | string | `""` | Extract content matching a CSS selector (e.g. `"div.article"`). When set, the semantic BestBlock heuristic is bypassed entirely. |
+| `frontmatter` | bool | `false` | Prepend YAML frontmatter with `title`, `url`, `fetched_at`, `lang`, `tokens_est`, and optional `final_url` and `schema_type`. |
+| `schema_path` | string | `""` | Query JSON-LD structured data using a dot-path (e.g. `"@type"`, `"name"`). Requires a JSON-LD data island on the page. Useful when you only need the schema data, not page Markdown. |
+
 > **Note:** The MCP server caps `timeout_seconds` at 120 seconds. The CLI `--timeout` flag has no maximum, but values above 120s will produce a warning since MCP requests cannot exceed the cap.
 
 ## Configuration
@@ -156,7 +170,7 @@ These fingerprints are maintained by the [azuretls](https://github.com/Noooste/a
 
 ## Limitations (v0.1)
 
-- **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration.
+- **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration. As a workaround, the thin-content auto-fallback retries with the page's `.md` twin or site-level `llms.txt` when available.
 - **No JS challenges** — Cloudflare Managed Challenge / Turnstile requires a real browser. TLS/HTTP2 fingerprinting passes basic bot-detection.
 
 
