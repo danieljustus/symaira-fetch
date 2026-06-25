@@ -576,3 +576,82 @@ func TestRun_CacheHit_PrivateRedirect_Discarded(t *testing.T) {
 		t.Errorf("expected fresh fetch output, got: %q", res.Output)
 	}
 }
+
+func TestRun_LikelyClientRendered_NavHeavy(t *testing.T) {
+	thinBody := []byte(`<html><body>
+		<a href="/home">Home</a>
+		<a href="/about">About</a>
+		<a href="/contact">Contact</a>
+		<a href="/blog">Blog</a>
+		<a href="/docs">Docs</a>
+	</body></html>`)
+	tree, err := dom.Parse(thinBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode: 200,
+			Body:       thinBody,
+			Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:   "https://example.com/app",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/app", Options{
+		Format: FormatMarkdown,
+		Cache:  CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !res.Meta.LikelyClientRendered {
+		t.Error("expected LikelyClientRendered=true for nav-heavy page")
+	}
+}
+
+func TestRun_LikelyClientRendered_ContentRich(t *testing.T) {
+	richBody := []byte(`<html><body>
+		<article>
+			<h1>Go Concurrency Patterns</h1>
+			<p>Go provides powerful concurrency primitives through goroutines and channels. This article explores how to use them effectively in production systems, covering best practices and common pitfalls.</p>
+			<p>Goroutines are lightweight threads managed by the Go runtime. Unlike OS threads, they start with just a few kilobytes of stack, making it practical to spawn hundreds of thousands concurrently.</p>
+			<p>Channels are typed conduits for communication between goroutines. They provide synchronization and data passing in a single construct, eliminating the need for locks in many cases.</p>
+			<p>The select statement lets a goroutine wait on multiple channel operations, enabling complex coordination patterns without explicit synchronization primitives.</p>
+			<p>In practice, most concurrent Go programs follow a few well-established patterns: fan-out/fan-in for parallel processing, pipeline for streaming data, and worker pools for bounded concurrency.</p>
+		</article>
+	</body></html>`)
+	tree, err := dom.Parse(richBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode: 200,
+			Body:       richBody,
+			Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:   "https://example.com/article",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/article", Options{
+		Format: FormatMarkdown,
+		Cache:  CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if res.Meta.LikelyClientRendered {
+		t.Error("expected LikelyClientRendered=false for content-rich page")
+	}
+}

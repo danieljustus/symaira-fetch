@@ -247,7 +247,8 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		}
 	}
 
-	if isThinContent(bestNode, o.Content.CharThreshold) {
+	detectedThin := isThinContent(bestNode, o.Content.CharThreshold)
+	if detectedThin {
 		if fbResult, fbResp, ok := tryFallback(ctx, c, eng, rawURL, o); ok {
 			fbCharCount := utf8.RuneCountInString(fbResult.Output)
 			if fbCharCount >= o.Content.CharThreshold {
@@ -281,14 +282,15 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	truncated := charCount >= o.Content.MaxChars
 
 	meta := agentdom.Meta{
-		FinalURL:   resp.FinalURL,
-		StatusCode: resp.StatusCode,
-		Title:      tree.Title,
-		Lang:       tree.Lang,
-		CharCount:  charCount,
-		EstTokens:  charCount / 4,
-		Truncated:  truncated,
-		Protocol:   resp.Protocol,
+		FinalURL:             resp.FinalURL,
+		StatusCode:           resp.StatusCode,
+		Title:                tree.Title,
+		Lang:                 tree.Lang,
+		CharCount:            charCount,
+		EstTokens:            charCount / 4,
+		Truncated:            truncated,
+		Protocol:             resp.Protocol,
+		LikelyClientRendered: detectedThin,
 	}
 
 	if cacher != nil {

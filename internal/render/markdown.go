@@ -113,6 +113,9 @@ func FormatMarkdownWithMeta(meta agentdom.Meta, output string) string {
 	if meta.Truncated {
 		sb.WriteString(" · ⚠ truncated")
 	}
+	if meta.LikelyClientRendered {
+		sb.WriteString(" · ⚠ likely client-rendered")
+	}
 	sb.WriteString("\n> ")
 	sb.WriteString(meta.FinalURL)
 	sb.WriteString("\n\n")
