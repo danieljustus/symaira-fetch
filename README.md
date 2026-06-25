@@ -185,4 +185,4 @@ go install github.com/danieljustus/symaira-fetch/cmd/symfetch@latest
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
