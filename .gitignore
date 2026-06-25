@@ -23,3 +23,6 @@ AGENTS.md
 
 # Local audit reports
 .github/audit/
+
+# Documentation builds / local notes
+docs/
