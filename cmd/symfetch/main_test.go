@@ -67,24 +67,6 @@ func newErrorTestServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-func newBrokenConnectionServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		conn, _, err := hj.Hijack()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"))
-		conn.Close()
-	}))
-}
-
 // newMultiPageServer creates an httptest server with /page1 and /page2.
 func newMultiPageServer(t *testing.T) *httptest.Server {
 	t.Helper()
