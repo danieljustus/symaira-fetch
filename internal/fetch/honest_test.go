@@ -28,6 +28,48 @@ func testBackoffConfig(maxRetries int) BackoffConfig {
 // Retry on transient HTTP status codes
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Response body is closed during retry (no leak)
+// ---------------------------------------------------------------------------
+
+func TestHonestClient_Retry_BodyClosedDuringRetry(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("retry-me"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	c, err := New(ProfileHonest, WithRetry(true), WithBackoffConfig(testBackoffConfig(2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	resp, err := c.Fetch(context.Background(), Request{
+		URL:          srv.URL,
+		AllowPrivate: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Fatalf("expected 2 attempts, got %d", got)
+	}
+}
+
 func TestHonestClient_Retry_Transient503(t *testing.T) {
 	t.Parallel()
 	var attempts int32

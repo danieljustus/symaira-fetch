@@ -201,8 +201,6 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 		elapsed := time.Since(start)
 
 		if err == nil {
-			defer resp.Body.Close()
-
 			if IsTransientError(resp.StatusCode, nil) && c.opts.enableRetry && attempt < maxRetries {
 				retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
 				delay := c.opts.backoffConfig.BackoffDelay(attempt)
@@ -212,6 +210,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 				if c.opts.rateLimiter != nil {
 					c.opts.rateLimiter.RecordFailure(req.URL)
 				}
+				resp.Body.Close()
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -220,6 +219,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 				continue
 			}
 
+			defer resp.Body.Close()
 			limited := io.LimitReader(resp.Body, maxBody+1)
 			body, err := io.ReadAll(limited)
 			if err != nil {
