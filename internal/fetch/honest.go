@@ -21,6 +21,7 @@ type honestClient struct {
 	hcUnsafe     *http.Client // transport without SSRF dial guard (for AllowPrivate=true)
 	opts         *clientOptions
 	proxyClients map[string]*http.Client
+	proxyOrder   []string
 	proxyMu      sync.Mutex
 }
 
@@ -137,6 +138,15 @@ func (c *honestClient) getProxyClient(proxyURL string, allowPrivate bool) *http.
 		return client
 	}
 
+	if len(c.proxyClients) >= maxProxySessions {
+		oldest := c.proxyOrder[0]
+		c.proxyOrder = c.proxyOrder[1:]
+		if client, ok := c.proxyClients[oldest]; ok {
+			client.CloseIdleConnections()
+			delete(c.proxyClients, oldest)
+		}
+	}
+
 	parsed, err := url.Parse(proxyURL)
 	if err != nil {
 		if allowPrivate {
@@ -170,6 +180,7 @@ func (c *honestClient) getProxyClient(proxyURL string, allowPrivate bool) *http.
 	}
 	client := &http.Client{Transport: transport, CheckRedirect: redirectFn}
 	c.proxyClients[key] = client
+	c.proxyOrder = append(c.proxyOrder, key)
 	return client
 }
 
@@ -180,6 +191,8 @@ func (c *honestClient) Close() error {
 	for _, client := range c.proxyClients {
 		client.CloseIdleConnections()
 	}
+	c.proxyClients = make(map[string]*http.Client)
+	c.proxyOrder = nil
 	c.proxyMu.Unlock()
 	return nil
 }
