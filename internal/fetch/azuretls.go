@@ -10,12 +10,15 @@ import (
 	azuretls "github.com/Noooste/azuretls-client"
 )
 
+const maxProxySessions = 10
+
 // azureClient uses azuretls for browser-impersonating TLS+HTTP/2.
 type azureClient struct {
 	session       *azuretls.Session
 	opts          *clientOptions
 	profile       Profile
 	proxySessions map[string]*azuretls.Session
+	proxyOrder    []string
 	proxyMu       sync.Mutex
 }
 
@@ -125,6 +128,15 @@ func (c *azureClient) getProxySession(proxyURL string) *azuretls.Session {
 		return sess
 	}
 
+	if len(c.proxySessions) >= maxProxySessions {
+		oldest := c.proxyOrder[0]
+		c.proxyOrder = c.proxyOrder[1:]
+		if sess, ok := c.proxySessions[oldest]; ok {
+			sess.Close()
+			delete(c.proxySessions, oldest)
+		}
+	}
+
 	var browser string
 	switch c.profile {
 	case ProfileFirefox:
@@ -138,6 +150,7 @@ func (c *azureClient) getProxySession(proxyURL string) *azuretls.Session {
 		return nil
 	}
 	c.proxySessions[proxyURL] = sess
+	c.proxyOrder = append(c.proxyOrder, proxyURL)
 	return sess
 }
 
@@ -147,6 +160,8 @@ func (c *azureClient) Close() error {
 	for _, sess := range c.proxySessions {
 		sess.Close()
 	}
+	c.proxySessions = make(map[string]*azuretls.Session)
+	c.proxyOrder = nil
 	c.proxyMu.Unlock()
 	return nil
 }

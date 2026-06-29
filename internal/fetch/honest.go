@@ -21,6 +21,7 @@ type honestClient struct {
 	hcUnsafe     *http.Client // transport without SSRF dial guard (for AllowPrivate=true)
 	opts         *clientOptions
 	proxyClients map[string]*http.Client
+	proxyOrder   []string
 	proxyMu      sync.Mutex
 }
 
@@ -137,6 +138,15 @@ func (c *honestClient) getProxyClient(proxyURL string, allowPrivate bool) *http.
 		return client
 	}
 
+	if len(c.proxyClients) >= maxProxySessions {
+		oldest := c.proxyOrder[0]
+		c.proxyOrder = c.proxyOrder[1:]
+		if client, ok := c.proxyClients[oldest]; ok {
+			client.CloseIdleConnections()
+			delete(c.proxyClients, oldest)
+		}
+	}
+
 	parsed, err := url.Parse(proxyURL)
 	if err != nil {
 		if allowPrivate {
@@ -170,6 +180,7 @@ func (c *honestClient) getProxyClient(proxyURL string, allowPrivate bool) *http.
 	}
 	client := &http.Client{Transport: transport, CheckRedirect: redirectFn}
 	c.proxyClients[key] = client
+	c.proxyOrder = append(c.proxyOrder, key)
 	return client
 }
 
@@ -180,6 +191,8 @@ func (c *honestClient) Close() error {
 	for _, client := range c.proxyClients {
 		client.CloseIdleConnections()
 	}
+	c.proxyClients = make(map[string]*http.Client)
+	c.proxyOrder = nil
 	c.proxyMu.Unlock()
 	return nil
 }
@@ -201,8 +214,6 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 		elapsed := time.Since(start)
 
 		if err == nil {
-			defer resp.Body.Close()
-
 			if IsTransientError(resp.StatusCode, nil) && c.opts.enableRetry && attempt < maxRetries {
 				retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
 				delay := c.opts.backoffConfig.BackoffDelay(attempt)
@@ -212,6 +223,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 				if c.opts.rateLimiter != nil {
 					c.opts.rateLimiter.RecordFailure(req.URL)
 				}
+				resp.Body.Close()
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -220,6 +232,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 				continue
 			}
 
+			defer resp.Body.Close()
 			limited := io.LimitReader(resp.Body, maxBody+1)
 			body, err := io.ReadAll(limited)
 			if err != nil {
