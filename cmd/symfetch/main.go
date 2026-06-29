@@ -51,6 +51,7 @@ func newRootCmd() *cobra.Command {
 		flagConcurrency int
 		flagAllowPriv   bool
 		flagRobots      bool
+		flagNoRetry     bool
 	)
 
 	root := &cobra.Command{
@@ -117,7 +118,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				fetch.WithProxy(proxy),
 				fetch.WithTimeout(timeoutSec),
 				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
-				fetch.WithRetry(true),
+				fetch.WithRetry(!flagNoRetry),
 			)
 			if err != nil {
 				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
@@ -211,6 +212,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().IntVar(&flagConcurrency, "concurrency", 4, "Parallel fetch workers for multiple URLs")
 	root.Flags().BoolVar(&flagAllowPriv, "allow-private", false, "Allow fetching private/loopback addresses")
 	root.Flags().BoolVar(&flagRobots, "robots", false, "Check robots.txt before fetching")
+	root.Flags().BoolVar(&flagNoRetry, "no-retry", false, "Disable automatic retry on transient errors")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
