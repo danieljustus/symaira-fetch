@@ -7,11 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/danieljustus/symaira-fetch/internal/agentdom"
-	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
-	"github.com/danieljustus/symaira-fetch/internal/render"
-	"github.com/danieljustus/symaira-fetch/internal/semantic"
 	"golang.org/x/net/html"
 )
 
@@ -93,111 +89,25 @@ func tryFallback(ctx context.Context, c fetch.Client, eng Engine, rawURL string,
 // without fallback recursion. originURL is the original request URL used as the
 // Doc.URL in the result.
 func fetchAndProcess(ctx context.Context, c fetch.Client, eng Engine, fetchURL, originURL string, o Options) (*Result, *fetch.Response, bool) {
-	// SSRF guard
-	if !o.Security.AllowPrivate {
-		if err := fetch.CheckSSRF(fetchURL); err != nil {
-			slog.Debug("fallback SSRF blocked", "url", fetchURL, "error", err)
-			return nil, nil, false
-		}
-	}
+	fbOpts := o
+	fbOpts.DisableFallback = true
 
-	// Robots check
-	if o.Security.Robots && o.Security.RobotsChecker != nil {
-		allowed, err := o.Security.RobotsChecker.Check(ctx, "symfetch", fetchURL)
-		if err == nil && !allowed {
-			slog.Debug("fallback robots blocked", "url", fetchURL)
-			return nil, nil, false
-		}
-	}
-
-	// Fetch
-	resp, err := c.Fetch(ctx, fetch.Request{
-		URL:          fetchURL,
-		AllowPrivate: o.Security.AllowPrivate,
-		Session:      o.Session,
-	})
+	result, err := Run(ctx, c, eng, fetchURL, fbOpts)
 	if err != nil {
-		slog.Debug("fallback fetch failed", "url", fetchURL, "error", err)
-		return nil, nil, false
-	}
-	if resp.StatusCode >= 400 {
-		slog.Debug("fallback fetch HTTP error", "url", fetchURL, "status", resp.StatusCode)
+		slog.Debug("fallback pipeline failed", "url", fetchURL, "error", err)
 		return nil, nil, false
 	}
 
-	// Materialize
-	tree, err := eng.Materialize(ctx, resp)
-	if err != nil {
-		slog.Debug("fallback materialize failed", "url", fetchURL, "error", err)
-		return nil, nil, false
+	// Override Doc.URL with the original request URL
+	if result.Doc != nil {
+		result.Doc.URL = originURL
 	}
 
-	// Extract islands BEFORE filtering
-	rawIslands := semantic.ExtractIslands(tree.Root, o.Content.MaxIslandBytes)
-
-	dom.Filter(tree.Root)
-
-	bestNode := semantic.BestBlock(tree.Root, o.Content.CharThreshold)
-
-	doc := &agentdom.Document{
-		URL:      originURL,
-		FinalURL: resp.FinalURL,
-		Title:    tree.Title,
-		Lang:     tree.Lang,
-	}
-
-	builder := agentdom.NewBuilder(o.Content.MaxChars)
-	builder.Build(bestNode, doc)
-
-	for _, island := range rawIslands {
-		doc.Islands = append(doc.Islands, agentdom.DataIsland{
-			Source: island.Source,
-			JSON:   island.JSON,
-		})
-	}
-
-	// Render
-	var output string
-	switch o.Format {
-	case FormatJSON:
-		output, err = render.JSON(doc)
-		if err != nil {
-			return nil, nil, false
-		}
-	case FormatText:
-		output = render.Text(doc)
-	case FormatHTML:
-		output = rawHTMLFallback(resp.Body)
-	default:
-		if o.SchemaPath != "" {
-			result, queryErr := render.QuerySchema(doc.Islands, o.SchemaPath)
-			if queryErr != nil {
-				return nil, nil, false
-			}
-			output = result
-		} else {
-			output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
-			if err != nil {
-				return nil, nil, false
-			}
-		}
-	}
-
-	charCount := utf8.RuneCountInString(output)
-	truncated := charCount >= o.Content.MaxChars
-
-	meta := agentdom.Meta{
-		FinalURL:   resp.FinalURL,
-		StatusCode: resp.StatusCode,
-		Title:      tree.Title,
-		Lang:       tree.Lang,
-		CharCount:  charCount,
-		EstTokens:  charCount / 4,
-		Truncated:  truncated,
-		Protocol:   resp.Protocol,
-	}
-
-	return &Result{Doc: doc, Output: output, Meta: meta}, resp, true
+	return result, &fetch.Response{
+		FinalURL:    result.Meta.FinalURL,
+		StatusCode:  result.Meta.StatusCode,
+		Protocol:    result.Meta.Protocol,
+	}, true
 }
 
 // countTextContent returns the total visible text character count of a node

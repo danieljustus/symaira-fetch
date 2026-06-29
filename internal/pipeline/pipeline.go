@@ -48,15 +48,16 @@ func ParseFormat(s string) Format {
 
 // Options configures the pipeline run.
 type Options struct {
-	Format      Format
-	Content     ContentOptions
-	Cache       CacheOptions
-	Profile     string
-	Session     string
-	Security    SecurityOptions
-	CSSSelector string // optional CSS selector for targeted extraction
-	Frontmatter bool   // optional YAML frontmatter output
-	SchemaPath  string // optional JSON-LD query path like "@Recipe:name"
+	Format         Format
+	Content        ContentOptions
+	Cache          CacheOptions
+	Profile        string
+	Session        string
+	Security       SecurityOptions
+	CSSSelector    string // optional CSS selector for targeted extraction
+	Frontmatter    bool   // optional YAML frontmatter output
+	SchemaPath     string // optional JSON-LD query path like "@Recipe:name"
+	DisableFallback bool  // when true, skip thin-content retry (prevents recursion)
 }
 
 // ContentOptions controls content extraction limits and scoring.
@@ -256,7 +257,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	}
 
 	detectedThin := isThinContent(bestNode, o.Content.CharThreshold, spaSkeleton)
-	if detectedThin {
+	if detectedThin && !o.DisableFallback {
 		if fbResult, fbResp, ok := tryFallback(ctx, c, eng, rawURL, o); ok {
 			fbCharCount := utf8.RuneCountInString(fbResult.Output)
 			if fbCharCount >= o.Content.CharThreshold {
