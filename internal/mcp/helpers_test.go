@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
@@ -460,7 +461,7 @@ func TestMakeFetchURLHandler_SuccessfulNonRaw(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_InvalidJSON(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	_, err := handler(context.Background(), []byte("{invalid"))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -471,7 +472,7 @@ func TestMakeFetchBatchHandler_InvalidJSON(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_NonStringURLContinue(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls": []interface{}{123, "", "https://example.com"},
 	})
@@ -485,7 +486,7 @@ func TestMakeFetchBatchHandler_NonStringURLContinue(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_MaxCharsExtraction(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls":      []interface{}{"https://example.com"},
 		"max_chars": float64(5000),
@@ -500,7 +501,7 @@ func TestMakeFetchBatchHandler_MaxCharsExtraction(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_MaxCharsCapped(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls":      []interface{}{"https://example.com"},
 		"max_chars": float64(600000),
@@ -515,7 +516,7 @@ func TestMakeFetchBatchHandler_MaxCharsCapped(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_ConcurrencyExtraction(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls":        []interface{}{"https://example.com"},
 		"concurrency": float64(6),
@@ -530,7 +531,7 @@ func TestMakeFetchBatchHandler_ConcurrencyExtraction(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_ConcurrencyCapped(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls":        []interface{}{"https://example.com"},
 		"concurrency": float64(20),
@@ -545,7 +546,7 @@ func TestMakeFetchBatchHandler_ConcurrencyCapped(t *testing.T) {
 }
 
 func TestMakeFetchBatchHandler_Success(t *testing.T) {
-	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{})
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
 	input, _ := json.Marshal(map[string]interface{}{
 		"urls": []interface{}{"https://example.com", "https://example.org"},
 	})
