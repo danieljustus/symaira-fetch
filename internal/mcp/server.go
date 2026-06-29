@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
+	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
@@ -26,12 +27,13 @@ func StartServer(profile fetch.Profile, proxy string) error {
 	}
 	defer client.Close()
 	eng := pipeline.StaticEngine{}
+	adaptivePool := batch.NewAdaptivePool(2, 8)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	srv := mcpserver.New("symfetch", ServerVersion)
-	registerTools(srv, client, eng)
+	registerTools(srv, client, eng, adaptivePool)
 	return srv.ServeStdio(ctx)
 }
 
@@ -39,6 +41,6 @@ func StartServer(profile fetch.Profile, proxy string) error {
 // Exposed for testing; use StartServer for production.
 func ServeIO(ctx context.Context, r io.Reader, w io.Writer, client fetch.Client, eng pipeline.Engine) error {
 	srv := mcpserver.New("symfetch", "test")
-	registerTools(srv, client, eng)
+	registerTools(srv, client, eng, batch.NewAdaptivePool(2, 8))
 	return srv.ServeIO(ctx, r, w)
 }

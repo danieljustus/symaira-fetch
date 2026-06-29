@@ -23,7 +23,7 @@ const (
 	maxCharsLimit = 500_000
 )
 
-func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engine) {
+func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engine, adaptivePool *batch.AdaptivePool) {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "fetch_url",
 		Description: "Fetch a web page and return LLM-optimized content. Uses browser-impersonating TLS to bypass basic bot detection. Returns Markdown by default.",
@@ -58,7 +58,7 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 			},
 			"required": ["urls"]
 		}`),
-		Handler: makeFetchBatchHandler(client, eng),
+		Handler: makeFetchBatchHandler(client, eng, adaptivePool),
 	})
 }
 
@@ -137,7 +137,7 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 	}
 }
 
-func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx context.Context, input json.RawMessage) (any, error) {
+func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePool *batch.AdaptivePool) func(ctx context.Context, input json.RawMessage) (any, error) {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var args map[string]interface{}
 		if err := json.Unmarshal(input, &args); err != nil {
@@ -187,7 +187,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine) func(ctx co
 			concurrency = c
 		}
 
-		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: batch.NewAdaptivePool(2, 8)}
+		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
 		results := pool.RunBatch(ctx, client, eng, items, pipeline.Options{
 			Format: format,
 			Content: pipeline.ContentOptions{
