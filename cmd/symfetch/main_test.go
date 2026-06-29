@@ -60,6 +60,31 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+func newErrorTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+}
+
+func newBrokenConnectionServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"))
+		conn.Close()
+	}))
+}
+
 // newMultiPageServer creates an httptest server with /page1 and /page2.
 func newMultiPageServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -876,13 +901,14 @@ func TestFetch_MultiURL_Batch(t *testing.T) {
 func TestFetch_PartialFailure(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
+	errSrv := newErrorTestServer(t)
+	defer errSrv.Close()
 
-	// Use --concurrency 1 to hit the single-URL loop path
 	_, stderr, err := executeCmd(t,
 		"--format", "markdown",
 		"--concurrency", "1",
-		"--allow-private", "--no-cache", "--profile", "honest",
-		srv.URL, "http://127.0.0.1:1/bad",
+		"--allow-private", "--no-cache", "--no-retry", "--profile", "honest",
+		srv.URL, errSrv.URL,
 	)
 	if err == nil {
 		t.Fatal("expected error for partial failure")
@@ -903,11 +929,13 @@ func TestFetch_PartialFailure(t *testing.T) {
 func TestFetch_PartialFailure_MultiJSON(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
+	errSrv := newErrorTestServer(t)
+	defer errSrv.Close()
 
 	_, _, err := executeCmd(t,
 		"--format", "json",
-		"--allow-private", "--no-cache", "--profile", "honest",
-		srv.URL, "http://127.0.0.1:1/bad",
+		"--allow-private", "--no-cache", "--no-retry", "--profile", "honest",
+		srv.URL, errSrv.URL,
 	)
 	if err == nil {
 		t.Fatal("expected error for partial failure")
@@ -916,7 +944,6 @@ func TestFetch_PartialFailure_MultiJSON(t *testing.T) {
 	if code != exitcodes.ExitGeneric {
 		t.Errorf("expected ExitGeneric (%d), got %d", exitcodes.ExitGeneric, code)
 	}
-	// Verify it's a CLIError with the right message
 	var cliErr *exitcodes.CLIError
 	if !errors.As(err, &cliErr) {
 		t.Fatalf("expected CLIError, got %T", err)
@@ -933,12 +960,14 @@ func TestFetch_PartialFailure_MultiJSON(t *testing.T) {
 func TestFetch_PartialFailure_Batch(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
+	errSrv := newErrorTestServer(t)
+	defer errSrv.Close()
 
 	_, _, err := executeCmd(t,
 		"--format", "markdown",
 		"--concurrency", "2",
-		"--allow-private", "--no-cache", "--profile", "honest",
-		srv.URL, "http://127.0.0.1:1/bad",
+		"--allow-private", "--no-cache", "--no-retry", "--profile", "honest",
+		srv.URL, errSrv.URL,
 	)
 	if err == nil {
 		t.Fatal("expected error for partial failure")
@@ -1020,12 +1049,14 @@ func TestFetch_Links(t *testing.T) {
 func TestExitCode_PartialFailure(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
+	errSrv := newErrorTestServer(t)
+	defer errSrv.Close()
 
 	_, _, err := executeCmd(t,
 		"--format", "text",
 		"--concurrency", "1",
-		"--allow-private", "--no-cache", "--profile", "honest",
-		srv.URL, "http://127.0.0.1:1/bad",
+		"--allow-private", "--no-cache", "--no-retry", "--profile", "honest",
+		srv.URL, errSrv.URL,
 	)
 	if err == nil {
 		t.Fatal("expected error for partial failure")
@@ -1049,7 +1080,7 @@ func TestRunRaw_PartialFailure(t *testing.T) {
 
 	_, stderr, err := executeCmd(t,
 		"--raw",
-		"--allow-private", "--no-cache", "--profile", "honest",
+		"--allow-private", "--no-cache", "--no-retry", "--profile", "honest",
 		srv.URL, "http://127.0.0.1:1/bad",
 	)
 	if err == nil {
