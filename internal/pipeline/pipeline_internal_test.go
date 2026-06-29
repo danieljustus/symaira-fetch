@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/html"
-
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/dom"
@@ -201,29 +199,6 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
-}
-
-func parseHTMLNodeInternal(t *testing.T, htmlStr string) *html.Node {
-	t.Helper()
-	doc, err := html.Parse(strings.NewReader(htmlStr))
-	if err != nil {
-		t.Fatalf("failed to parse HTML: %v", err)
-	}
-	return doc
-}
-
-func nodeText(n *html.Node) string {
-	if n == nil {
-		return ""
-	}
-	if n.Type == html.TextNode {
-		return n.Data
-	}
-	var text string
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		text += nodeText(c)
-	}
-	return text
 }
 
 func newInternalTestClient(t *testing.T) fetch.Client {
