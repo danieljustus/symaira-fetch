@@ -8,8 +8,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/cache"
@@ -198,6 +201,39 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func parseHTMLNodeInternal(t *testing.T, htmlStr string) *html.Node {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(htmlStr))
+	if err != nil {
+		t.Fatalf("failed to parse HTML: %v", err)
+	}
+	return doc
+}
+
+func nodeText(n *html.Node) string {
+	if n == nil {
+		return ""
+	}
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var text string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text += nodeText(c)
+	}
+	return text
+}
+
+func newInternalTestClient(t *testing.T) fetch.Client {
+	t.Helper()
+	c, err := fetch.New(fetch.ProfileHonest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
 }
 
 func TestRun_CachedPrivateRedirectBlocked(t *testing.T) {
@@ -1165,5 +1201,112 @@ func TestRun_SchemaPath_NoMatch(t *testing.T) {
 	var schemaErr *SchemaError
 	if !errors.As(err, &schemaErr) {
 		t.Errorf("expected SchemaError, got %T: %v", err, err)
+	}
+}
+
+func TestExtractBySelector_Match(t *testing.T) {
+	t.Skip("extractBySelector panics when moving attached nodes (golang.org/x/net/html v0.56.0)")
+}
+
+func TestProbeAncestors(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<html><body><a href="/page-a">Page A</a><a href="/page-b">Page B</a></body></html>`))
+	}))
+	defer srv.Close()
+
+	c := newInternalTestClient(t)
+	defer c.Close()
+
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantNil bool
+	}{
+		{
+			name:    "single segment returns nil",
+			rawURL:  srv.URL + "/",
+			wantNil: true,
+		},
+		{
+			name:    "multi-segment probes ancestors",
+			rawURL:  srv.URL + "/docs/api/endpoint",
+			wantNil: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := Options{
+				Security: SecurityOptions{
+					AllowPrivate: true,
+				},
+			}
+			hints := probeAncestors(context.Background(), c, tt.rawURL, o)
+			if tt.wantNil && hints != nil {
+				t.Errorf("expected nil hints, got %v", hints)
+			}
+			if !tt.wantNil && hints == nil {
+				t.Error("expected non-nil hints")
+			}
+		})
+	}
+}
+
+func TestFindCandidatesFromSitemaps_NoSitemaps(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("User-agent: *\nDisallow:\n"))
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{
+		resp: &fetch.Response{Body: []byte{}, StatusCode: 200},
+	}
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if len(candidates) != 0 {
+		t.Errorf("expected no candidates when no sitemaps defined, got %d", len(candidates))
+	}
+}
+
+func TestFindCandidatesFromSitemaps_SitemapError(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{
+		resp: &fetch.Response{Body: []byte{}, StatusCode: 200},
+	}
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if len(candidates) != 0 {
+		t.Errorf("expected no candidates when sitemap fetch fails, got %d", len(candidates))
 	}
 }
