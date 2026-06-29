@@ -3,8 +3,12 @@ package mcp_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
@@ -142,5 +146,84 @@ func TestMCPNotificationNoResponse(t *testing.T) {
 
 	if out.Len() > 0 {
 		t.Errorf("expected no response for notification, got: %s", out.String())
+	}
+}
+
+func TestStartServerLifecycle(t *testing.T) {
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdin pipe: %v", err)
+	}
+	defer stdinR.Close()
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		stdinW.Close()
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	defer stdoutW.Close()
+
+	origStdin := os.Stdin
+	origStdout := os.Stdout
+	defer func() {
+		os.Stdin = origStdin
+		os.Stdout = origStdout
+	}()
+
+	os.Stdin = stdinR
+	os.Stdout = stdoutW
+
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params":  map[string]interface{}{},
+	}
+	data, _ := json.Marshal(req)
+	fmt.Fprintf(stdinW, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	stdinW.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- mcp.StartServer(fetch.ProfileHonest, "")
+	}()
+
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf.ReadFrom(stdoutR)
+	}()
+
+	select {
+	case err := <-serverErr:
+		stdoutW.Close()
+		<-done
+		os.Stdout = origStdout
+		if err != nil {
+			t.Fatalf("StartServer returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		stdoutW.Close()
+		<-done
+		os.Stdout = origStdout
+		t.Fatal("StartServer timed out")
+	}
+
+	frames := readFrames(t, buf.String())
+	if len(frames) == 0 {
+		t.Fatal("expected at least one response frame from StartServer")
+	}
+
+	resp := frames[0]
+	if resp["jsonrpc"] == nil {
+		t.Error("response missing jsonrpc field")
+	}
+	result, ok := resp["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected result object, got: %v", resp)
+	}
+	if result["protocolVersion"] == nil {
+		t.Error("expected protocolVersion in initialize response")
 	}
 }
