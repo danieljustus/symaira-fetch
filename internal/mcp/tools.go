@@ -80,7 +80,11 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 
 		format := pipeline.FormatMarkdown
 		if f, ok := args["format"].(string); ok && f != "" {
-			format = pipeline.ParseFormat(f)
+			parsed, err := pipeline.ParseFormat(f)
+			if err != nil {
+				return nil, fmt.Errorf("invalid format: %w", err)
+			}
+			format = parsed
 		}
 
 		maxChars := 20000
@@ -166,7 +170,11 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 
 		format := pipeline.FormatMarkdown
 		if f, ok := args["format"].(string); ok && f != "" {
-			format = pipeline.ParseFormat(f)
+			parsed, err := pipeline.ParseFormat(f)
+			if err != nil {
+				return nil, fmt.Errorf("invalid format: %w", err)
+			}
+			format = parsed
 		}
 
 		maxChars := 20000

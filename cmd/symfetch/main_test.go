@@ -667,6 +667,59 @@ func TestFetch_AllRawFlags(t *testing.T) {
 // NEW: single URL fetch in each format
 // ---------------------------------------------------------------------------
 
+func TestFetch_InvalidFormat(t *testing.T) {
+	_, _, err := executeCmd(t,
+		"--format", "definitely-not-real",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		"http://example.com",
+	)
+	if err == nil {
+		t.Fatal("expected error for invalid format")
+	}
+	code := exitcodes.ExitCodeFromError(err)
+	if code != exitcodes.ExitConfig {
+		t.Errorf("expected ExitConfig (%d), got %d", exitcodes.ExitConfig, code)
+	}
+}
+
+func TestFetch_ProcessedPOST(t *testing.T) {
+	var receivedMethod string
+	var receivedBody string
+	var receivedHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedHeader = r.Header.Get("X-Test")
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>POST</title></head><body><p>Processed POST</p></body></html>`))
+	}))
+	defer srv.Close()
+
+	stdout, _, err := executeCmd(t,
+		"--request", "POST",
+		"--header", "X-Test: yes",
+		"--data", `{"k":"v"}`,
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL,
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if receivedMethod != "POST" {
+		t.Errorf("expected POST, got %s", receivedMethod)
+	}
+	if receivedBody != `{"k":"v"}` {
+		t.Errorf("expected body {\"k\":\"v\"}, got %q", receivedBody)
+	}
+	if receivedHeader != "yes" {
+		t.Errorf("expected X-Test=yes, got %q", receivedHeader)
+	}
+	if !strings.Contains(stdout, "Processed POST") {
+		t.Errorf("expected processed output, got: %s", stdout)
+	}
+}
+
 func TestFetch_SingleURL_Markdown(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()

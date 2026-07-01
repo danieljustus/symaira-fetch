@@ -32,32 +32,43 @@ const (
 	FormatHTML     Format = "html"
 )
 
-// ParseFormat parses a string into a Format.
-func ParseFormat(s string) Format {
+// ParseFormat parses a string into a Format. Empty values default to markdown;
+// unsupported values return an error.
+func ParseFormat(s string) (Format, error) {
 	switch strings.ToLower(s) {
+	case "", "markdown":
+		return FormatMarkdown, nil
 	case "json":
-		return FormatJSON
+		return FormatJSON, nil
 	case "text":
-		return FormatText
+		return FormatText, nil
 	case "html":
-		return FormatHTML
+		return FormatHTML, nil
 	default:
-		return FormatMarkdown
+		return FormatMarkdown, fmt.Errorf("unsupported format %q: expected markdown, json, text, or html", s)
 	}
 }
 
 // Options configures the pipeline run.
 type Options struct {
-	Format         Format
-	Content        ContentOptions
-	Cache          CacheOptions
-	Profile        string
-	Session        string
-	Security       SecurityOptions
-	CSSSelector    string // optional CSS selector for targeted extraction
-	Frontmatter    bool   // optional YAML frontmatter output
-	SchemaPath     string // optional JSON-LD query path like "@Recipe:name"
-	DisableFallback bool  // when true, skip thin-content retry (prevents recursion)
+	Format          Format
+	Content         ContentOptions
+	Cache           CacheOptions
+	Profile         string
+	Session         string
+	Security        SecurityOptions
+	CSSSelector     string // optional CSS selector for targeted extraction
+	Frontmatter     bool   // optional YAML frontmatter output
+	SchemaPath      string // optional JSON-LD query path like "@Recipe:name"
+	DisableFallback bool   // when true, skip thin-content retry (prevents recursion)
+	Request         RequestOptions
+}
+
+// RequestOptions carries per-request HTTP parameters for the processed path.
+type RequestOptions struct {
+	Method  string
+	Headers map[string]string
+	Body    []byte
 }
 
 // ContentOptions controls content extraction limits and scoring.
@@ -73,7 +84,7 @@ type CacheOptions struct {
 	NoCache  bool
 	Dir      string
 	TTL      time.Duration
-	MaxSize  int64 // max cache size in bytes; 0 uses default (100 MB)
+	MaxSize  int64        // max cache size in bytes; 0 uses default (100 MB)
 	Instance *cache.Cache // shared cache instance; when nil, per-call cache is created
 }
 
@@ -176,6 +187,9 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 
 	resp, err := c.Fetch(ctx, fetch.Request{
 		URL:          rawURL,
+		Method:       o.Request.Method,
+		Headers:      o.Request.Headers,
+		Body:         o.Request.Body,
 		AllowPrivate: o.Security.AllowPrivate,
 		Session:      o.Session,
 	})
@@ -645,8 +659,8 @@ type sitemapURL struct {
 }
 
 type sitemapURLset struct {
-	XMLName xml.Name      `xml:"urlset"`
-	URLs    []sitemapURL  `xml:"url"`
+	XMLName xml.Name     `xml:"urlset"`
+	URLs    []sitemapURL `xml:"url"`
 }
 
 type sitemapSitemap struct {
@@ -654,8 +668,8 @@ type sitemapSitemap struct {
 }
 
 type sitemapIndex struct {
-	XMLName  xml.Name           `xml:"sitemapindex"`
-	Sitemaps []sitemapSitemap   `xml:"sitemap"`
+	XMLName  xml.Name         `xml:"sitemapindex"`
+	Sitemaps []sitemapSitemap `xml:"sitemap"`
 }
 
 func findCandidatesFromSitemaps(ctx context.Context, c fetch.Client, u *url.URL, failedSegment string, o Options) []CandidateURL {

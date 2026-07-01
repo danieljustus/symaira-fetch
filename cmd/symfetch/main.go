@@ -89,6 +89,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			if cmd.Flags().Changed("format") {
 				format = flagFormat
 			}
+			parsedFormat, err := pipeline.ParseFormat(format)
+			if err != nil {
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid format")
+			}
 			maxChars := cfg.HTTP.MaxChars
 			if cmd.Flags().Changed("max-chars") {
 				maxChars = flagMaxChars
@@ -126,8 +130,12 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			defer client.Close()
 
 			eng := pipeline.StaticEngine{}
+			body := []byte(nil)
+			if flagData != "" {
+				body = []byte(flagData)
+			}
 			opts := pipeline.Options{
-				Format: pipeline.ParseFormat(format),
+				Format: parsedFormat,
 				Content: pipeline.ContentOptions{
 					MaxChars:     maxChars,
 					IncludeLinks: flagLinks,
@@ -142,6 +150,11 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				Session: flagSession,
 				Security: pipeline.SecurityOptions{
 					Robots: flagRobots,
+				},
+				Request: pipeline.RequestOptions{
+					Method:  strings.ToUpper(flagMethod),
+					Headers: extraHeaders,
+					Body:    body,
 				},
 			}
 			if flagRobots {
