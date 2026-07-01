@@ -61,6 +61,14 @@ type Options struct {
 	Frontmatter     bool   // optional YAML frontmatter output
 	SchemaPath      string // optional JSON-LD query path like "@Recipe:name"
 	DisableFallback bool   // when true, skip thin-content retry (prevents recursion)
+	Request         RequestOptions
+}
+
+// RequestOptions carries per-request HTTP parameters for the processed path.
+type RequestOptions struct {
+	Method  string
+	Headers map[string]string
+	Body    []byte
 }
 
 // ContentOptions controls content extraction limits and scoring.
@@ -179,6 +187,9 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 
 	resp, err := c.Fetch(ctx, fetch.Request{
 		URL:          rawURL,
+		Method:       o.Request.Method,
+		Headers:      o.Request.Headers,
+		Body:         o.Request.Body,
 		AllowPrivate: o.Security.AllowPrivate,
 		Session:      o.Session,
 	})

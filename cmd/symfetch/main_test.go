@@ -682,6 +682,44 @@ func TestFetch_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestFetch_ProcessedPOST(t *testing.T) {
+	var receivedMethod string
+	var receivedBody string
+	var receivedHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedHeader = r.Header.Get("X-Test")
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>POST</title></head><body><p>Processed POST</p></body></html>`))
+	}))
+	defer srv.Close()
+
+	stdout, _, err := executeCmd(t,
+		"--request", "POST",
+		"--header", "X-Test: yes",
+		"--data", `{"k":"v"}`,
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL,
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if receivedMethod != "POST" {
+		t.Errorf("expected POST, got %s", receivedMethod)
+	}
+	if receivedBody != `{"k":"v"}` {
+		t.Errorf("expected body {\"k\":\"v\"}, got %q", receivedBody)
+	}
+	if receivedHeader != "yes" {
+		t.Errorf("expected X-Test=yes, got %q", receivedHeader)
+	}
+	if !strings.Contains(stdout, "Processed POST") {
+		t.Errorf("expected processed output, got: %s", stdout)
+	}
+}
+
 func TestFetch_SingleURL_Markdown(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()

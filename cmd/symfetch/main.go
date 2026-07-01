@@ -130,6 +130,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			defer client.Close()
 
 			eng := pipeline.StaticEngine{}
+			body := []byte(nil)
+			if flagData != "" {
+				body = []byte(flagData)
+			}
 			opts := pipeline.Options{
 				Format: parsedFormat,
 				Content: pipeline.ContentOptions{
@@ -146,6 +150,11 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				Session: flagSession,
 				Security: pipeline.SecurityOptions{
 					Robots: flagRobots,
+				},
+				Request: pipeline.RequestOptions{
+					Method:  strings.ToUpper(flagMethod),
+					Headers: extraHeaders,
+					Body:    body,
 				},
 			}
 			if flagRobots {

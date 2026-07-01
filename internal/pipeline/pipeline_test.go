@@ -3,6 +3,7 @@ package pipeline_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -411,6 +412,47 @@ func TestRunRaw(t *testing.T) {
 	}
 	if !strings.Contains(string(resp.Body), "Hello Raw") {
 		t.Errorf("expected raw body content, got: %s", resp.Body)
+	}
+}
+
+func TestRunWithRequestOptions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if got := r.Header.Get("X-Test"); got != "yes" {
+			t.Errorf("expected X-Test header 'yes', got %q", got)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"k":"v"}` {
+			t.Errorf("expected body {\"k\":\"v\"}, got %q", string(body))
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body><h1>Hello POST</h1></body></html>"))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t)
+	res, err := pipeline.Run(context.Background(), c, pipeline.StaticEngine{}, srv.URL, pipeline.Options{
+		Format: pipeline.FormatMarkdown,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+		Request: pipeline.RequestOptions{
+			Method:  http.MethodPost,
+			Headers: map[string]string{"X-Test": "yes"},
+			Body:    []byte(`{"k":"v"}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, "Hello POST") {
+		t.Errorf("expected processed output to contain 'Hello POST', got:\n%s", res.Output)
 	}
 }
 
