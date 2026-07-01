@@ -357,26 +357,31 @@ func TestPipeline_ISO8859_1(t *testing.T) {
 
 func TestParseFormat(t *testing.T) {
 	tests := []struct {
-		input string
-		want  pipeline.Format
+		input   string
+		want    pipeline.Format
+		wantErr bool
 	}{
-		{"markdown", pipeline.FormatMarkdown},
-		{"Markdown", pipeline.FormatMarkdown},
-		{"MARKDOWN", pipeline.FormatMarkdown},
-		{"json", pipeline.FormatJSON},
-		{"JSON", pipeline.FormatJSON},
-		{"text", pipeline.FormatText},
-		{"TEXT", pipeline.FormatText},
-		{"html", pipeline.FormatHTML},
-		{"HTML", pipeline.FormatHTML},
-		{"unknown", pipeline.FormatMarkdown},
-		{"", pipeline.FormatMarkdown},
-		{"xml", pipeline.FormatMarkdown},
+		{"markdown", pipeline.FormatMarkdown, false},
+		{"Markdown", pipeline.FormatMarkdown, false},
+		{"MARKDOWN", pipeline.FormatMarkdown, false},
+		{"json", pipeline.FormatJSON, false},
+		{"JSON", pipeline.FormatJSON, false},
+		{"text", pipeline.FormatText, false},
+		{"TEXT", pipeline.FormatText, false},
+		{"html", pipeline.FormatHTML, false},
+		{"HTML", pipeline.FormatHTML, false},
+		{"", pipeline.FormatMarkdown, false},
+		{"unknown", pipeline.FormatMarkdown, true},
+		{"xml", pipeline.FormatMarkdown, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := pipeline.ParseFormat(tt.input)
+			got, err := pipeline.ParseFormat(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseFormat(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
 			if got != tt.want {
 				t.Errorf("ParseFormat(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -1049,8 +1054,8 @@ func TestPipeline404SitemapAbsentFallback(t *testing.T) {
 	_, err := pipeline.Run(context.Background(), c, eng, srv.URL+"/a/b/c", pipeline.Options{
 		Format: pipeline.FormatMarkdown,
 		Security: pipeline.SecurityOptions{
-			AllowPrivate: true,
-			Robots:       true,
+			AllowPrivate:  true,
+			Robots:        true,
 			RobotsChecker: robots.NewChecker().WithPrivate(true),
 		},
 	})

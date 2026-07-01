@@ -667,6 +667,21 @@ func TestFetch_AllRawFlags(t *testing.T) {
 // NEW: single URL fetch in each format
 // ---------------------------------------------------------------------------
 
+func TestFetch_InvalidFormat(t *testing.T) {
+	_, _, err := executeCmd(t,
+		"--format", "definitely-not-real",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		"http://example.com",
+	)
+	if err == nil {
+		t.Fatal("expected error for invalid format")
+	}
+	code := exitcodes.ExitCodeFromError(err)
+	if code != exitcodes.ExitConfig {
+		t.Errorf("expected ExitConfig (%d), got %d", exitcodes.ExitConfig, code)
+	}
+}
+
 func TestFetch_SingleURL_Markdown(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()

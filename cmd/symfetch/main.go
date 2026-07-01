@@ -89,6 +89,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 			if cmd.Flags().Changed("format") {
 				format = flagFormat
 			}
+			parsedFormat, err := pipeline.ParseFormat(format)
+			if err != nil {
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid format")
+			}
 			maxChars := cfg.HTTP.MaxChars
 			if cmd.Flags().Changed("max-chars") {
 				maxChars = flagMaxChars
@@ -127,7 +131,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 
 			eng := pipeline.StaticEngine{}
 			opts := pipeline.Options{
-				Format: pipeline.ParseFormat(format),
+				Format: parsedFormat,
 				Content: pipeline.ContentOptions{
 					MaxChars:     maxChars,
 					IncludeLinks: flagLinks,
