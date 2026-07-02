@@ -35,23 +35,25 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	var (
-		flagFormat      string
-		flagRaw         bool
-		flagProfile     string
-		flagProxy       string
-		flagTimeout     string
-		flagMaxChars    int
-		flagLinks       bool
-		flagSession     string
-		flagNoCache     bool
-		flagCacheTTL    string
-		flagHeaders     []string
-		flagMethod      string
-		flagData        string
-		flagConcurrency int
-		flagAllowPriv   bool
-		flagRobots      bool
-		flagNoRetry     bool
+		flagFormat         string
+		flagRaw            bool
+		flagProfile        string
+		flagProxy          string
+		flagTimeout        string
+		flagMaxChars       int
+		flagLinks          bool
+		flagSession        string
+		flagNoCache        bool
+		flagCacheTTL       string
+		flagHeaders        []string
+		flagMethod         string
+		flagData           string
+		flagConcurrency    int
+		flagAllowPriv      bool
+		flagRobots         bool
+		flagNoRetry        bool
+		flagStoreFullText  bool
+		flagCharLimit      int
 	)
 
 	root := &cobra.Command{
@@ -156,6 +158,8 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 					Headers: extraHeaders,
 					Body:    body,
 				},
+				StoreFullText: flagStoreFullText,
+				CharLimit:     flagCharLimit,
 			}
 			if flagRobots {
 				opts.Security.RobotsChecker = robots.NewChecker()
@@ -226,6 +230,8 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().BoolVar(&flagAllowPriv, "allow-private", false, "Allow fetching private/loopback addresses")
 	root.Flags().BoolVar(&flagRobots, "robots", false, "Check robots.txt before fetching")
 	root.Flags().BoolVar(&flagNoRetry, "no-retry", false, "Disable automatic retry on transient errors")
+	root.Flags().BoolVar(&flagStoreFullText, "store-full-text", false, "Enable truncate-and-store for long pages (Hermes-style)")
+	root.Flags().IntVar(&flagCharLimit, "char-limit", 15000, "Per-page character limit for truncate-and-store")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
