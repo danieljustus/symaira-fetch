@@ -2,6 +2,7 @@ package render
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -1467,6 +1468,136 @@ func TestFormatMarkdownWithMeta_LikelyClientRendered(t *testing.T) {
 	}
 	if !strings.Contains(got, "> **SPA Shell**") {
 		t.Errorf("expected title in metadata, got: %s", got)
+	}
+}
+
+// --- Issue #188: coverage regression target tests ---
+
+// schema.go:22 — SchemaMiss.Error() fallback when Msg is empty
+func TestSchemaMiss_ErrorEmptyMsg(t *testing.T) {
+	e := &SchemaMiss{Path: "@Recipe:name"}
+	got := e.Error()
+	if !strings.Contains(got, `"@Recipe:name"`) {
+		t.Errorf("expected quoted path in error, got: %q", got)
+	}
+	if !strings.Contains(got, "no match") {
+		t.Errorf("expected 'no match' in error, got: %q", got)
+	}
+}
+
+// schema.go:36-38 — QuerySchema rejects empty path
+func TestQuerySchema_EmptyPath(t *testing.T) {
+	_, err := QuerySchema([]agentdom.DataIsland{}, "")
+	if err == nil {
+		t.Fatal("expected error for empty schema path")
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Errorf("expected 'must not be empty', got: %v", err)
+	}
+}
+
+// schema.go:106-108 — queryTypeField: "type" field (not "@type")
+func TestQueryTypeField_TypeField(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "ld+json", JSON: json.RawMessage(`{"type": "Product", "name": "Widget"}`)},
+	}
+	got, err := queryTypeField(islands)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Product"` {
+		t.Errorf("expected %q, got %q", `"Product"`, got)
+	}
+}
+
+// schema.go:122-124 — queryTypeField: no types found
+func TestQueryTypeField_NoTypesFound(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "ld+json", JSON: json.RawMessage(`{"name": "Widget"}`)},
+	}
+	_, err := queryTypeField(islands)
+	if err == nil {
+		t.Fatal("expected error for no types found")
+	}
+	var miss *SchemaMiss
+	if !errors.As(err, &miss) {
+		t.Errorf("expected SchemaMiss, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "@type not found") {
+		t.Errorf("expected '@type not found', got: %v", err)
+	}
+}
+
+// schema.go:94-95 — queryTypeField skips non-ld+json islands
+func TestQueryTypeField_SkipsNonLDJSON(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "__NEXT_DATA__", JSON: json.RawMessage(`{"@type": "Recipe"}`)},
+	}
+	_, err := queryTypeField(islands)
+	if err == nil {
+		t.Fatal("expected error when all islands are non-ld+json")
+	}
+}
+
+// schema.go: unmarshal error in queryTypeField (island.Source == ld+json but bad JSON)
+func TestQueryTypeField_InvalidJSON(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "ld+json", JSON: json.RawMessage(`{not json`)},
+	}
+	_, err := queryTypeField(islands)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// schema.go:142-143 — queryPlainPath skips non-ld+json islands
+func TestQueryPlainPath_SkipsNonLDJSON(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "__NEXT_DATA__", JSON: json.RawMessage(`{"name": "Test"}`)},
+	}
+	_, err := queryPlainPath(islands, "name")
+	if err == nil {
+		t.Fatal("expected error when all islands are non-ld+json")
+	}
+}
+
+// schema.go:146 — queryPlainPath: unmarshal error → continue
+func TestQueryPlainPath_InvalidJSON(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{Source: "ld+json", JSON: json.RawMessage(`{not json`)},
+	}
+	_, err := queryPlainPath(islands, "name")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON in ld+json island")
+	}
+}
+
+// frontmatter.go:23-25 — GenerateFrontmatter with nil doc returns ""
+func TestGenerateFrontmatter_NilDoc(t *testing.T) {
+	meta := agentdom.Meta{Title: "Test", Lang: "en", EstTokens: 10}
+	got := GenerateFrontmatter(meta, nil)
+	if got != "" {
+		t.Errorf("expected empty string for nil doc, got: %q", got)
+	}
+}
+
+// traverseFieldMap: "cannot traverse into" default branch (non-map, non-array)
+func TestTraverseFieldMap_CannotTraverseIntoPrimitive(t *testing.T) {
+	data := map[string]interface{}{"val": "string_value"}
+	_, err := traverseFieldMap(data, "val.subfield")
+	if err == nil {
+		t.Fatal("expected error when traversing into a string")
+	}
+	if !strings.Contains(err.Error(), "cannot traverse into") {
+		t.Errorf("expected 'cannot traverse into', got: %v", err)
+	}
+}
+
+// findTypedNode: returns nil for unmarshalable JSON
+func TestFindTypedNode_InvalidJSON(t *testing.T) {
+	got := findTypedNode(json.RawMessage(`{bad`), "Recipe")
+	if got != nil {
+		t.Errorf("expected nil for invalid JSON, got: %v", got)
 	}
 }
 

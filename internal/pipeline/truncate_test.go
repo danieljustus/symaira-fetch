@@ -322,3 +322,154 @@ func extractOffsetFromFooter(t *testing.T, result string) int {
 	}
 	return offset
 }
+
+func TestStoreOptions_SetDefaults_CharLimitZero(t *testing.T) {
+	o := StoreOptions{CharLimit: 0, HeadRatio: 0.8, TailRatio: 0.2, MaxStored: 1000}
+	o.setDefaults()
+	if o.CharLimit != DefaultCharLimit {
+		t.Errorf("expected CharLimit=%d, got %d", DefaultCharLimit, o.CharLimit)
+	}
+}
+
+func TestStoreOptions_SetDefaults_HeadRatioInvalid(t *testing.T) {
+	o := StoreOptions{CharLimit: 100, HeadRatio: 0, TailRatio: 0.2, MaxStored: 1000}
+	o.setDefaults()
+	if o.HeadRatio != 0.8 {
+		t.Errorf("expected HeadRatio=0.8, got %f", o.HeadRatio)
+	}
+
+	o2 := StoreOptions{CharLimit: 100, HeadRatio: 1.5, TailRatio: 0.2, MaxStored: 1000}
+	o2.setDefaults()
+	if o2.HeadRatio != 0.8 {
+		t.Errorf("expected HeadRatio=0.8 for >=1, got %f", o2.HeadRatio)
+	}
+}
+
+func TestStoreOptions_SetDefaults_TailRatioInvalid(t *testing.T) {
+	o := StoreOptions{CharLimit: 100, HeadRatio: 0.8, TailRatio: 0, MaxStored: 1000}
+	o.setDefaults()
+	if o.TailRatio != 0.2 {
+		t.Errorf("expected TailRatio=0.2, got %f", o.TailRatio)
+	}
+
+	o2 := StoreOptions{CharLimit: 100, HeadRatio: 0.8, TailRatio: 1.0, MaxStored: 1000}
+	o2.setDefaults()
+	if o2.TailRatio != 0.2 {
+		t.Errorf("expected TailRatio=0.2 for >=1, got %f", o2.TailRatio)
+	}
+}
+
+func TestStoreOptions_SetDefaults_MaxStoredZero(t *testing.T) {
+	o := StoreOptions{CharLimit: 100, HeadRatio: 0.8, TailRatio: 0.2, MaxStored: 0}
+	o.setDefaults()
+	if o.MaxStored != DefaultMaxStored {
+		t.Errorf("expected MaxStored=%d, got %d", DefaultMaxStored, o.MaxStored)
+	}
+}
+
+func TestTruncateAndStore_EmptyStoreDir(t *testing.T) {
+	content := strings.Repeat("A", 200)
+	_, stored, err := TruncateAndStore(content, StoreOptions{
+		CharLimit: 100,
+		StoreDir:  "",
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 1000,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty store dir")
+	}
+	if stored {
+		t.Error("expected stored=false on error")
+	}
+}
+
+func TestTruncateAndStore_MkdirAllError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can create directories in read-only locations")
+	}
+
+	parentDir := t.TempDir()
+	if err := os.Chmod(parentDir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parentDir, 0700) })
+
+	storeDir := filepath.Join(parentDir, "subdir")
+	content := strings.Repeat("A", 200)
+	_, stored, err := TruncateAndStore(content, StoreOptions{
+		CharLimit: 100,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 1000,
+	})
+	if err == nil {
+		t.Fatal("expected error for MkdirAll failure")
+	}
+	if stored {
+		t.Error("expected stored=false on error")
+	}
+}
+
+func TestTruncateAndStore_WriteFileError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can write into read-only directories")
+	}
+
+	storeDir := t.TempDir()
+	if err := os.Chmod(storeDir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(storeDir, 0700) })
+
+	content := strings.Repeat("B", 200)
+	_, stored, err := TruncateAndStore(content, StoreOptions{
+		CharLimit: 100,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 1000,
+	})
+	if err == nil {
+		t.Fatal("expected error for read-only store dir")
+	}
+	if stored {
+		t.Error("expected stored=false on error")
+	}
+}
+
+func TestTruncateTo_ShortString(t *testing.T) {
+	result := truncateTo("abc", 10)
+	if result != "abc" {
+		t.Errorf("expected 'abc' for short string, got %q", result)
+	}
+}
+
+func TestTailOf_ShortString(t *testing.T) {
+	result := tailOf("abc", 10)
+	if result != "abc" {
+		t.Errorf("expected 'abc' for short string, got %q", result)
+	}
+}
+
+func TestComputeTailOffset_ShortString(t *testing.T) {
+	offset := computeTailOffset("abc", 10)
+	if offset != 0 {
+		t.Errorf("expected offset=0 for short string, got %d", offset)
+	}
+}
+
+func TestCapBytes_UnderLimit(t *testing.T) {
+	result := capBytes("hello", 100)
+	if result != "hello" {
+		t.Errorf("expected 'hello' unchanged, got %q", result)
+	}
+}
+
+func TestTruncateTo_NExceedsLength(t *testing.T) {
+	result := truncateTo("hi", 5)
+	if result != "hi" {
+		t.Errorf("expected 'hi', got %q", result)
+	}
+}
