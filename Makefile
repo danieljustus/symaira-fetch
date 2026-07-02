@@ -1,6 +1,5 @@
 GO ?= go
 BINARY_NAME = symfetch
-VERSION_PKG = github.com/danieljustus/symaira-fetch/cmd/symfetch
 
 .PHONY: all
 all: build test
@@ -11,7 +10,7 @@ build:
 
 .PHONY: build-version
 build-version:
-	CGO_ENABLED=0 $(GO) build -ldflags "-s -w -X $(VERSION_PKG).version=$(VERSION)" -o $(BINARY_NAME) ./cmd/symfetch
+	CGO_ENABLED=0 $(GO) build -ldflags "-s -w -X main.version=$(VERSION)" -o $(BINARY_NAME) ./cmd/symfetch
 
 .PHONY: test
 test:
@@ -25,6 +24,19 @@ test-verbose:
 test-race:
 	$(GO) test -race ./...
 
+.PHONY: test-version
+test-version:
+	$(MAKE) build-version VERSION=ci-test-sentinel
+	@OUTPUT=$$(./$(BINARY_NAME) version) && \
+	if echo "$$OUTPUT" | grep -q "ci-test-sentinel"; then \
+		echo "✓ Version injection OK: $$OUTPUT"; \
+	else \
+		echo "✗ Version injection FAILED: expected 'ci-test-sentinel', got: $$OUTPUT" >&2; \
+		rm -f $(BINARY_NAME); \
+		exit 1; \
+	fi
+	@rm -f $(BINARY_NAME)
+
 .PHONY: lint
 lint:
 	$(GO) fmt ./...
@@ -37,4 +49,4 @@ clean:
 
 .PHONY: install
 install:
-	CGO_ENABLED=0 $(GO) install -ldflags "-s -w -X $(VERSION_PKG).version=dev" ./cmd/symfetch
+	CGO_ENABLED=0 $(GO) install -ldflags "-s -w -X main.version=dev" ./cmd/symfetch
