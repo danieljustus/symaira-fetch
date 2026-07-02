@@ -26,6 +26,7 @@ URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content S
 
 ## Features
 
+- **Hermes-style truncate-and-store** — For long pages, return a head+tail window with a footer pointing to the cached full text, keeping LLM context bounded while preserving access to the complete content
 - **Browser-impersonating TLS** — Chrome/Firefox JA4/HTTP2 fingerprints via [azuretls](https://github.com/Noooste/azuretls-client)
 - **Semantic DOM pipeline** — DomFilter → content scoring → 8-category classification → TokenCompressor → Markdown/JSON
 - **Data island extraction** — `__NEXT_DATA__`, `application/ld+json`, `__PRELOADED_STATE__` without JS execution
@@ -91,6 +92,12 @@ symfetch https://example.com --robots
 # Named session (persistent cookie jar)
 symfetch https://example.com --session my-session
 
+# Truncate long pages to a head+tail window, store full text in cache
+symfetch https://example.com --store-full-text
+
+# Custom per-page character limit for truncate-and-store
+symfetch https://example.com --store-full-text --char-limit 8000
+
 # Allow private/loopback addresses (dangerous, CLI-only)
 symfetch http://localhost:8080 --allow-private
 
@@ -133,6 +140,8 @@ Available MCP tools:
 | `css_selector` | string | `""` | Extract content matching a CSS selector (e.g. `"div.article"`). When set, the semantic BestBlock heuristic is bypassed entirely. |
 | `frontmatter` | bool | `false` | Prepend YAML frontmatter with `title`, `url`, `fetched_at`, `lang`, `tokens_est`, and optional `final_url` and `schema_type`. |
 | `schema_path` | string | `""` | Query JSON-LD structured data. Typed selectors (`@Recipe:name`, `@Product:aggregateRating.ratingValue`) filter by `@type` then traverse a dot-path. Plain field paths (`name`, `headline`, `@type`) search all JSON-LD islands including `@graph` nodes. Returns empty string with a warning when the query finds no match. |
+| `store_full_text` | bool | `false` | Enable truncate-and-store for long pages: returns a head+tail window and stores the full text in the cache. |
+| `char_limit` | integer | `15000` | Per-page character limit for truncate-and-store. |
 
 > **Note:** The MCP server caps `timeout_seconds` at 120 seconds. The CLI `--timeout` flag has no maximum, but values above 120s will produce a warning since MCP requests cannot exceed the cap.
 
@@ -166,9 +175,9 @@ Symaira Fetch impersonates real browser TLS and HTTP/2 fingerprints to bypass ba
 
 These fingerprints are maintained by the [azuretls](https://github.com/Noooste/azuretls-client) library (v1.13.2). The target Chrome version is updated quarterly as Chrome releases drift from the pinned fingerprint.
 
-> **Note:** TLS/HTTP2 fingerprinting passes basic bot-detection (Cloudflare, Akamai) but does **not** pass JavaScript challenges (Cloudflare Managed Challenge, Turnstile). See [Limitations](#limitations-v01) for details.
+> **Note:** TLS/HTTP2 fingerprinting passes basic bot-detection (Cloudflare, Akamai) but does **not** pass JavaScript challenges (Cloudflare Managed Challenge, Turnstile). See [Limitations](#limitations-v02) for details.
 
-## Limitations (v0.1)
+## Limitations (v0.2)
 
 - **No JavaScript execution** — SPAs that require JS rendering may return incomplete content. The JS-exec seam (`pipeline.Engine`) is designed for future QuickJS/wazero integration. As a workaround, the thin-content auto-fallback retries with the page's `.md` twin or site-level `llms.txt` when available.
 - **No JS challenges** — Cloudflare Managed Challenge / Turnstile requires a real browser. TLS/HTTP2 fingerprinting passes basic bot-detection.
