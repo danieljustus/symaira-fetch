@@ -1166,18 +1166,17 @@ func TestRun_SchemaPath_NoMatch(t *testing.T) {
 	}
 	eng := &fakeEngine{tree: tree}
 
-	_, err = Run(context.Background(), c, eng, "https://example.com/article", Options{
+	res, err := Run(context.Background(), c, eng, "https://example.com/article", Options{
 		Format:     FormatMarkdown,
 		SchemaPath: "@Recipe:name",
 		Cache:      CacheOptions{NoCache: true},
 		Security:   SecurityOptions{AllowPrivate: true},
 	})
-	if err == nil {
-		t.Fatal("expected error for non-matching schema path")
+	if err != nil {
+		t.Fatalf("expected no error for schema miss (should log warning), got: %v", err)
 	}
-	var schemaErr *SchemaError
-	if !errors.As(err, &schemaErr) {
-		t.Errorf("expected SchemaError, got %T: %v", err, err)
+	if res.Output != "" {
+		t.Errorf("expected empty output for schema miss, got: %q", res.Output)
 	}
 }
 

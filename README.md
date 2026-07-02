@@ -31,7 +31,7 @@ URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content S
 - **Data island extraction** — `__NEXT_DATA__`, `application/ld+json`, `__PRELOADED_STATE__` without JS execution
 - **CSS selector extraction** — Bypass the semantic heuristic and extract content matching a CSS selector (selectable via MCP `css_selector` parameter)
 - **YAML frontmatter** — Prepend structured YAML frontmatter (`title`, `url`, `fetched_at`, `lang`, `schema_type`) to Markdown output
-- **JSON-LD schema query** — Query structured data on the page with dot-path expressions (e.g. `@type`, `name`)
+- **JSON-LD schema query** — Query structured data on the page with typed selectors (`@Recipe:name`) or plain field paths (`name`, `headline`, `@type`)
 - **Thin-content auto-fallback** — When a page returns a navigation shell or SPA skeleton, automatically retries with `.md` twin or site-level `llms.txt` for richer LLM-friendly content
 - **SPA skeleton detection** — Heuristic detection of client-rendered single-page apps that return near-empty HTML shells
 - **4xx recovery hints** — On HTTP 4xx errors, probes ancestor paths and sitemaps to suggest nearest reachable alternatives
@@ -132,7 +132,7 @@ Available MCP tools:
 |-----------|------|---------|-------------|
 | `css_selector` | string | `""` | Extract content matching a CSS selector (e.g. `"div.article"`). When set, the semantic BestBlock heuristic is bypassed entirely. |
 | `frontmatter` | bool | `false` | Prepend YAML frontmatter with `title`, `url`, `fetched_at`, `lang`, `tokens_est`, and optional `final_url` and `schema_type`. |
-| `schema_path` | string | `""` | Query JSON-LD structured data using a dot-path (e.g. `"@type"`, `"name"`). Requires a JSON-LD data island on the page. Useful when you only need the schema data, not page Markdown. |
+| `schema_path` | string | `""` | Query JSON-LD structured data. Typed selectors (`@Recipe:name`, `@Product:aggregateRating.ratingValue`) filter by `@type` then traverse a dot-path. Plain field paths (`name`, `headline`, `@type`) search all JSON-LD islands including `@graph` nodes. Returns empty string with a warning when the query finds no match. |
 
 > **Note:** The MCP server caps `timeout_seconds` at 120 seconds. The CLI `--timeout` flag has no maximum, but values above 120s will produce a warning since MCP requests cannot exceed the cap.
 

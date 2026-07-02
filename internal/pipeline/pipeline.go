@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -280,9 +281,16 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if o.SchemaPath != "" {
 			result, queryErr := render.QuerySchema(doc.Islands, o.SchemaPath)
 			if queryErr != nil {
-				return nil, &SchemaError{Path: o.SchemaPath, Err: queryErr.Error()}
+				var miss *render.SchemaMiss
+				if errors.As(queryErr, &miss) {
+					slog.Warn("schema query miss", "path", o.SchemaPath, "detail", miss.Msg)
+					output = ""
+				} else {
+					return nil, &SchemaError{Path: o.SchemaPath, Err: queryErr.Error()}
+				}
+			} else {
+				output = result
 			}
-			output = result
 		} else {
 			output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
 			if err != nil {

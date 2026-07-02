@@ -38,7 +38,7 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30, max 120)", "maximum": 120},
 				"css_selector": {"type": "string", "description": "CSS selector to extract specific elements (e.g., 'table.pricing', '.article-body')"},
 				"frontmatter": {"type": "boolean", "description": "Prepend YAML frontmatter with metadata (title, url, fetched_at, lang, tokens)"},
-				"schema_path": {"type": "string", "description": "JSON-LD query path (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue')"},
+				"schema_path": {"type": "string", "description": "JSON-LD query path. Typed selectors (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue') filter by @type then traverse a dot-path. Plain field paths (e.g., 'name', 'headline', '@type') search all JSON-LD islands including @graph nodes. Returns empty on miss."},
 				"store_full_text": {"type": "boolean", "description": "Enable truncate-and-store: returns head+tail for long pages, stores full text in cache (default false)"},
 				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"}
 			},
