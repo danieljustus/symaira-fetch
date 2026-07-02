@@ -114,7 +114,7 @@ func TestFetchErrorWithRecovery(t *testing.T) {
 	inner := fmt.Errorf("HTTP 404")
 	err := &pipeline.FetchError{
 		URL: "https://example.com/a/b/c",
-		Err:  inner,
+		Err: inner,
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/a/b/",
 			AncestorStatus:  200,
@@ -142,7 +142,7 @@ func TestFetchErrorWithoutRecovery(t *testing.T) {
 	inner := fmt.Errorf("HTTP 500")
 	err := &pipeline.FetchError{
 		URL: "https://example.com",
-		Err:  inner,
+		Err: inner,
 	}
 
 	if err.Recovery != nil {
@@ -153,7 +153,7 @@ func TestFetchErrorWithoutRecovery(t *testing.T) {
 func TestFetchErrorRecoveryJSON(t *testing.T) {
 	fe := &pipeline.FetchError{
 		URL: "https://example.com/a/b/c",
-		Err:  fmt.Errorf("HTTP 404"),
+		Err: fmt.Errorf("HTTP 404"),
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/a/b/",
 			AncestorStatus:  200,
@@ -161,7 +161,7 @@ func TestFetchErrorRecoveryJSON(t *testing.T) {
 	}
 
 	type jsonErr struct {
-		URL     string `json:"url"`
+		URL      string `json:"url"`
 		Recovery *struct {
 			NearestAncestor string `json:"nearest_ancestor"`
 			AncestorStatus  int    `json:"ancestor_status"`
@@ -205,7 +205,7 @@ func TestFetchErrorRecoveryUnwrap(t *testing.T) {
 	inner := fmt.Errorf("connection refused")
 	err := &pipeline.FetchError{
 		URL: "https://example.com",
-		Err:  inner,
+		Err: inner,
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/",
 			AncestorStatus:  200,
@@ -228,7 +228,7 @@ func TestFetchErrorRecoveryUnwrap(t *testing.T) {
 func TestFetchErrorRecoveryCandidatesJSON(t *testing.T) {
 	fe := &pipeline.FetchError{
 		URL: "https://example.com/a/b/c",
-		Err:  fmt.Errorf("HTTP 404"),
+		Err: fmt.Errorf("HTTP 404"),
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/a/b/",
 			AncestorStatus:  200,
@@ -251,7 +251,7 @@ func TestFetchErrorRecoveryCandidatesJSON(t *testing.T) {
 		Candidates      []jsonCand `json:"candidates,omitempty"`
 	}
 	type jsonErr struct {
-		URL     string         `json:"url"`
+		URL      string        `json:"url"`
 		Recovery *jsonRecovery `json:"recovery,omitempty"`
 	}
 
@@ -294,7 +294,7 @@ func TestFetchErrorRecoveryCandidatesUnwrap(t *testing.T) {
 	inner := fmt.Errorf("HTTP 404")
 	err := &pipeline.FetchError{
 		URL: "https://example.com/a/b/c",
-		Err:  inner,
+		Err: inner,
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/a/b/",
 			AncestorStatus:  200,

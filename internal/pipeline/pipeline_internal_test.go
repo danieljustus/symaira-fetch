@@ -1536,5 +1536,3 @@ func TestCacheKey_DifferentSchemaPaths_DifferentOutput(t *testing.T) {
 		t.Errorf("expected different output for different schema paths, but both returned same output")
 	}
 }
-
-
