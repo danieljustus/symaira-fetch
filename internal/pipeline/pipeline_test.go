@@ -44,6 +44,17 @@ func newTestClient(t *testing.T) fetch.Client {
 	return c
 }
 
+func defaultCacheKey() string {
+	return (&pipeline.Options{
+		Content: pipeline.ContentOptions{
+			MaxChars:      20000,
+			IncludeLinks:  false,
+			CharThreshold: 500,
+			MaxIslandBytes: 5000,
+		},
+	}).CacheKey()
+}
+
 func TestPipelineNewsArticle(t *testing.T) {
 	srv := serveFile(t, "news_article.html")
 	c := newTestClient(t)
@@ -489,7 +500,8 @@ func TestPipelineCachedPrivateURLBlocked(t *testing.T) {
 	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 
 	privateURL := "http://127.0.0.1:9999/secret"
-	cacher.Put(privateURL, "chrome", "markdown", "", "", []byte("secret content"), cache.Meta{
+	ck := defaultCacheKey()
+	cacher.Put(privateURL, "chrome", "markdown", "", ck, []byte("secret content"), cache.Meta{
 		URL:      privateURL,
 		FinalURL: "http://127.0.0.1:9999/secret",
 	})
@@ -517,7 +529,8 @@ func TestPipelineCachedPrivateRedirectBlocked(t *testing.T) {
 
 	publicURL := "http://example.com/page"
 	privateRedirect := "http://127.0.0.1:9999/admin"
-	cacher.Put(publicURL, "chrome", "markdown", "", "", []byte("redirected content"), cache.Meta{
+	ck := defaultCacheKey()
+	cacher.Put(publicURL, "chrome", "markdown", "", ck, []byte("redirected content"), cache.Meta{
 		URL:      publicURL,
 		FinalURL: privateRedirect,
 	})

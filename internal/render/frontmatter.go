@@ -20,6 +20,9 @@ type frontmatterData struct {
 }
 
 func GenerateFrontmatter(meta agentdom.Meta, doc *agentdom.Document) string {
+	if doc == nil {
+		return ""
+	}
 	fm := frontmatterData{
 		Title:     meta.Title,
 		URL:       doc.URL,

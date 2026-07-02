@@ -1185,6 +1185,176 @@ func TestQuerySchema_NilTypeField(t *testing.T) {
 	}
 }
 
+func TestQuerySchema_PlainPathType(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Recipe", "name": "Cake"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@type")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Recipe"` {
+		t.Errorf("expected %q, got %q", `"Recipe"`, got)
+	}
+}
+
+func TestQuerySchema_PlainPathName(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Recipe", "name": "Chocolate Cake"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "name")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Chocolate Cake"` {
+		t.Errorf("expected %q, got %q", `"Chocolate Cake"`, got)
+	}
+}
+
+func TestQuerySchema_PlainPathHeadline(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Article", "headline": "Breaking News"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "headline")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Breaking News"` {
+		t.Errorf("expected %q, got %q", `"Breaking News"`, got)
+	}
+}
+
+func TestQuerySchema_PlainPathNested(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@type": "Product",
+				"name": "Widget",
+				"aggregateRating": {"ratingValue": 4.5, "reviewCount": 100}
+			}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "aggregateRating.ratingValue")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "4.5" {
+		t.Errorf("expected 4.5, got %q", got)
+	}
+}
+
+func TestQuerySchema_TypedSelectorStillWorks(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON:   json.RawMessage(`{"@type": "Article", "headline": "Test Headline"}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@Article:headline")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Test Headline"` {
+		t.Errorf("expected %q, got %q", `"Test Headline"`, got)
+	}
+}
+
+func TestQuerySchema_GraphTypedSelection(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@graph": [
+					{"@type": "Organization", "name": "ACME Corp"},
+					{"@type": "WebPage", "name": "Home", "headline": "Welcome"}
+				]
+			}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@WebPage:headline")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != `"Welcome"` {
+		t.Errorf("expected %q, got %q", `"Welcome"`, got)
+	}
+}
+
+func TestQuerySchema_GraphPlainPath(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@graph": [
+					{"@type": "Organization", "name": "ACME Corp"},
+					{"@type": "WebPage", "name": "Home"}
+				]
+			}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "name")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "ACME Corp") || !strings.Contains(got, "Home") {
+		t.Errorf("expected both ACME Corp and Home, got: %q", got)
+	}
+}
+
+func TestQuerySchema_PlainPathTypeFromGraph(t *testing.T) {
+	islands := []agentdom.DataIsland{
+		{
+			Source: "ld+json",
+			JSON: json.RawMessage(`{
+				"@graph": [
+					{"@type": "Organization", "name": "ACME"},
+					{"@type": "WebPage", "name": "Home"}
+				]
+			}`),
+		},
+	}
+
+	got, err := QuerySchema(islands, "@type")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "Organization") || !strings.Contains(got, "WebPage") {
+		t.Errorf("expected both Organization and WebPage, got: %q", got)
+	}
+}
+
+func TestQuerySchema_InvalidSyntaxNoPanic(t *testing.T) {
+	badPaths := []string{
+		"@:",
+		"@:",
+		":name",
+		"@Recipe:",
+	}
+	for _, p := range badPaths {
+		_, err := QuerySchema([]agentdom.DataIsland{}, p)
+		if err == nil {
+			t.Errorf("expected error for path %q", p)
+		}
+	}
+}
+
 func TestTraversePath_DeepNesting(t *testing.T) {
 	data := json.RawMessage(`{"a": {"b": {"c": "deep"}}}`)
 	got, err := traversePath(data, "a.b.c")

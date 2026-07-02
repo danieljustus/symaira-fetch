@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -62,6 +65,9 @@ type Options struct {
 	SchemaPath      string // optional JSON-LD query path like "@Recipe:name"
 	DisableFallback bool   // when true, skip thin-content retry (prevents recursion)
 	Request         RequestOptions
+	StoreFullText   bool   // enable Hermes-style truncate-and-store for long pages
+	CharLimit       int    // per-page char limit for truncate-and-store (default 15000)
+	StoreDir        string // directory for storing full text files (default ~/.cache/symfetch/fulltext)
 }
 
 // RequestOptions carries per-request HTTP parameters for the processed path.
@@ -105,6 +111,9 @@ func (o *Options) setDefaults() {
 	if o.Content.MaxIslandBytes <= 0 {
 		o.Content.MaxIslandBytes = o.Content.MaxChars / 4
 	}
+	if o.StoreFullText && o.CharLimit <= 0 {
+		o.CharLimit = DefaultCharLimit
+	}
 }
 
 // ContentKey returns a deterministic string encoding every option that
@@ -112,6 +121,15 @@ func (o *Options) setDefaults() {
 // would produce different results.
 func (o *ContentOptions) ContentKey() string {
 	return fmt.Sprintf("mc=%d il=%v ct=%d mi=%d", o.MaxChars, o.IncludeLinks, o.CharThreshold, o.MaxIslandBytes)
+}
+
+// CacheKey returns a deterministic string encoding every option that
+// affects the cached output, including CSSSelector, Frontmatter,
+// SchemaPath, StoreFullText, and CharLimit in addition to ContentOptions fields.
+func (o *Options) CacheKey() string {
+	return fmt.Sprintf("%s cs=%s fm=%v sp=%s sft=%v cl=%d",
+		o.Content.ContentKey(), o.CSSSelector, o.Frontmatter, o.SchemaPath,
+		o.StoreFullText, o.CharLimit)
 }
 
 // Result holds the pipeline output.
@@ -154,7 +172,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		ck := o.Content.ContentKey()
+		ck := o.CacheKey()
 		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session, ck); ok {
 			if !o.Security.AllowPrivate && meta.FinalURL != "" && meta.FinalURL != rawURL {
 				if err := fetch.CheckSSRF(meta.FinalURL); err != nil {
@@ -165,6 +183,10 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 			if cacher != nil {
 				slog.Debug("cache hit", "url", rawURL)
 				return &Result{
+					Doc: &agentdom.Document{
+						URL:      rawURL,
+						FinalURL: meta.FinalURL,
+					},
 					Output: string(body),
 					Meta: agentdom.Meta{
 						FinalURL:   meta.FinalURL,
@@ -259,14 +281,46 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if o.SchemaPath != "" {
 			result, queryErr := render.QuerySchema(doc.Islands, o.SchemaPath)
 			if queryErr != nil {
-				return nil, &SchemaError{Path: o.SchemaPath, Err: queryErr.Error()}
+				var miss *render.SchemaMiss
+				if errors.As(queryErr, &miss) {
+					slog.Warn("schema query miss", "path", o.SchemaPath, "detail", miss.Msg)
+					output = ""
+				} else {
+					return nil, &SchemaError{Path: o.SchemaPath, Err: queryErr.Error()}
+				}
+			} else {
+				output = result
 			}
-			output = result
 		} else {
 			output, err = render.Markdown(doc, bestNode, o.Content.IncludeLinks)
 			if err != nil {
 				return nil, &RenderError{Format: "markdown", Err: err}
 			}
+		}
+	}
+
+	if o.StoreFullText {
+		output = render.StripBase64Images(output)
+		storeDir := o.StoreDir
+		if storeDir == "" {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				storeDir = filepath.Join(os.TempDir(), "symfetch", "fulltext")
+			} else {
+				storeDir = filepath.Join(home, ".cache", "symfetch", "fulltext")
+			}
+		}
+		storeResult, stored, storeErr := TruncateAndStore(output, StoreOptions{
+			CharLimit: o.CharLimit,
+			StoreDir:  storeDir,
+			HeadRatio: 0.8,
+			TailRatio: 0.2,
+			MaxStored: DefaultMaxStored,
+		})
+		if storeErr != nil {
+			slog.Debug("truncate-and-store failed", "url", rawURL, "error", storeErr)
+		} else if stored {
+			output = storeResult
 		}
 	}
 
@@ -283,7 +337,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 					if profile == "" {
 						profile = "chrome"
 					}
-					ck := o.Content.ContentKey()
+					ck := o.CacheKey()
 					if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(fbResult.Output), cache.Meta{
 						URL:         rawURL,
 						FinalURL:    fbResult.Meta.FinalURL,
@@ -321,7 +375,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		ck := o.Content.ContentKey()
+		ck := o.CacheKey()
 		if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(output), cache.Meta{
 			URL:         rawURL,
 			FinalURL:    resp.FinalURL,
@@ -382,7 +436,7 @@ func extractBySelector(root *html.Node, selector string) *html.Node {
 		Data: "div",
 	}
 	sel.Each(func(_ int, s *goquery.Selection) {
-		for _, n := range s.Nodes {
+		for _, n := range s.Clone().Nodes {
 			container.AppendChild(n)
 		}
 	})

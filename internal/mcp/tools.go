@@ -38,7 +38,9 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"timeout_seconds": {"type": "integer", "description": "Request timeout in seconds (default 30, max 120)", "maximum": 120},
 				"css_selector": {"type": "string", "description": "CSS selector to extract specific elements (e.g., 'table.pricing', '.article-body')"},
 				"frontmatter": {"type": "boolean", "description": "Prepend YAML frontmatter with metadata (title, url, fetched_at, lang, tokens)"},
-				"schema_path": {"type": "string", "description": "JSON-LD query path (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue')"}
+				"schema_path": {"type": "string", "description": "JSON-LD query path. Typed selectors (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue') filter by @type then traverse a dot-path. Plain field paths (e.g., 'name', 'headline', '@type') search all JSON-LD islands including @graph nodes. Returns empty on miss."},
+				"store_full_text": {"type": "boolean", "description": "Enable truncate-and-store: returns head+tail for long pages, stores full text in cache (default false)"},
+				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"}
 			},
 			"required": ["url"]
 		}`),
@@ -54,7 +56,9 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"urls": {"type": "array", "items": {"type": "string"}, "description": "URLs to fetch (max 20)"},
 				"format": {"type": "string", "description": "Output format for each result: markdown, json, text"},
 				"max_chars": {"type": "integer", "description": "Per-page character budget (default 20000)"},
-				"concurrency": {"type": "integer", "description": "Maximum parallel fetches (default 4, max 8)"}
+				"concurrency": {"type": "integer", "description": "Maximum parallel fetches (default 4, max 8)"},
+				"store_full_text": {"type": "boolean", "description": "Enable truncate-and-store for each page (default false)"},
+				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"}
 			},
 			"required": ["urls"]
 		}`),
@@ -99,9 +103,15 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		includeLinks, _ := args["include_links"].(bool)
 		raw, _ := args["raw"].(bool)
 		frontmatter, _ := args["frontmatter"].(bool)
+		storeFullText, _ := args["store_full_text"].(bool)
 
 		cssSelector, _ := args["css_selector"].(string)
 		schemaPath, _ := args["schema_path"].(string)
+
+		charLimit := pipeline.DefaultCharLimit
+		if v, ok := args["char_limit"].(float64); ok && v > 0 {
+			charLimit = int(v)
+		}
 
 		timeoutSec := 30
 		if v, ok := args["timeout_seconds"].(float64); ok && v > 0 {
@@ -129,9 +139,11 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 				MaxChars:     maxChars,
 				IncludeLinks: includeLinks,
 			},
-			CSSSelector: cssSelector,
-			Frontmatter: frontmatter,
-			SchemaPath:  schemaPath,
+			CSSSelector:   cssSelector,
+			Frontmatter:   frontmatter,
+			SchemaPath:    schemaPath,
+			StoreFullText: storeFullText,
+			CharLimit:     charLimit,
 		})
 		if err != nil {
 			return nil, categoriseError(err)
@@ -195,12 +207,20 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 			concurrency = c
 		}
 
+		storeFullText, _ := args["store_full_text"].(bool)
+		charLimit := pipeline.DefaultCharLimit
+		if v, ok := args["char_limit"].(float64); ok && v > 0 {
+			charLimit = int(v)
+		}
+
 		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
 		results := pool.RunBatch(ctx, client, eng, items, pipeline.Options{
 			Format: format,
 			Content: pipeline.ContentOptions{
 				MaxChars: maxChars,
 			},
+			StoreFullText: storeFullText,
+			CharLimit:     charLimit,
 		})
 
 		type jsonResult struct {
@@ -222,7 +242,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 func formatWithMeta(res *pipeline.Result, format pipeline.Format, frontmatter bool) string {
 	if format == pipeline.FormatMarkdown {
 		output := res.Output
-		if frontmatter {
+		if frontmatter && res.Doc != nil {
 			fm := render.GenerateFrontmatter(res.Meta, res.Doc)
 			output = fm + output
 		}
