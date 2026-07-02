@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/robots"
+	"golang.org/x/net/html"
 )
 
 type fakeClient struct {
@@ -1033,7 +1035,7 @@ func TestFindCandidatesFromSitemaps_NilChecker(t *testing.T) {
 func TestRun_CSSSelector(t *testing.T) {
 	body := []byte(`<html><body>
 		<nav>Navigation stuff here</nav>
-		<div class="content">
+		<div id="content">
 			<h1>Article Title</h1>
 			<p>This is the main article content that should be extracted by CSS selector.</p>
 		</div>
@@ -1055,19 +1057,20 @@ func TestRun_CSSSelector(t *testing.T) {
 	}
 	eng := &fakeEngine{tree: tree}
 
-	var panicVal interface{}
-	func() {
-		defer func() { panicVal = recover() }()
-		_, _ = Run(context.Background(), c, eng, "https://example.com/page", Options{
-			Format:      FormatMarkdown,
-			CSSSelector: "div.content",
-			Cache:       CacheOptions{NoCache: true},
-			Security:    SecurityOptions{AllowPrivate: true},
-		})
-	}()
-
-	if panicVal != nil {
-		t.Skipf("extractBySelector panics when moving attached nodes (golang.org/x/net/html v0.56.0): %v", panicVal)
+	res, err := Run(context.Background(), c, eng, "https://example.com/page", Options{
+		Format:      FormatMarkdown,
+		CSSSelector: "#content",
+		Cache:       CacheOptions{NoCache: true},
+		Security:    SecurityOptions{AllowPrivate: true},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsString(res.Output, "Article Title") {
+		t.Errorf("expected 'Article Title' in output, got: %q", res.Output)
+	}
+	if !containsString(res.Output, "main article content") {
+		t.Errorf("expected 'main article content' in output, got: %q", res.Output)
 	}
 }
 
@@ -1178,8 +1181,62 @@ func TestRun_SchemaPath_NoMatch(t *testing.T) {
 	}
 }
 
+// --- Issue #178 regression tests ---
+
 func TestExtractBySelector_Match(t *testing.T) {
-	t.Skip("extractBySelector panics when moving attached nodes (golang.org/x/net/html v0.56.0)")
+	tests := []struct {
+		name     string
+		html     string
+		selector string
+		wantText string
+	}{
+		{
+			name:     "h1 element",
+			html:     `<html><body><h1>Hello World</h1><p>Other</p></body></html>`,
+			selector: "h1",
+			wantText: "Hello World",
+		},
+		{
+			name:     "body element",
+			html:     `<html><body><p>Body content here</p></body></html>`,
+			selector: "body",
+			wantText: "Body content here",
+		},
+		{
+			name:     "multi-match p elements",
+			html:     `<html><body><p>First</p><p>Second</p><p>Third</p></body></html>`,
+			selector: "p",
+			wantText: "First",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := parseHTMLNode(t, tt.html)
+			got := extractBySelector(root, tt.selector)
+			if got == nil {
+				t.Fatalf("extractBySelector(%q) returned nil, want non-nil", tt.selector)
+			}
+			if !containsString(renderText(got), tt.wantText) {
+				t.Errorf("extractBySelector(%q) text = %q, want to contain %q", tt.selector, renderText(got), tt.wantText)
+			}
+		})
+	}
+}
+
+func renderText(n *html.Node) string {
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			sb.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return sb.String()
 }
 
 func TestProbeAncestors(t *testing.T) {
@@ -1401,36 +1458,28 @@ func TestCacheKey_DifferentCSSSelectors_DifferentOutput(t *testing.T) {
 	cacher := cache.New(tmpDir, 1*time.Hour, 0)
 	secOpts := SecurityOptions{AllowPrivate: true}
 
-	var panicVal interface{}
-	func() {
-		defer func() { panicVal = recover() }()
-		res1, err := Run(context.Background(), c, eng1, "https://example.com/page", Options{
-			Format:      FormatMarkdown,
-			CSSSelector: "#article",
-			Cache:       CacheOptions{Instance: cacher},
-			Security:    secOpts,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+	res1, err := Run(context.Background(), c, eng1, "https://example.com/page", Options{
+		Format:      FormatMarkdown,
+		CSSSelector: "#article",
+		Cache:       CacheOptions{Instance: cacher},
+		Security:    secOpts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		res2, err := Run(context.Background(), c, eng2, "https://example.com/page", Options{
-			Format:      FormatMarkdown,
-			CSSSelector: "#sidebar",
-			Cache:       CacheOptions{Instance: cacher},
-			Security:    secOpts,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+	res2, err := Run(context.Background(), c, eng2, "https://example.com/page", Options{
+		Format:      FormatMarkdown,
+		CSSSelector: "#sidebar",
+		Cache:       CacheOptions{Instance: cacher},
+		Security:    secOpts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		if res1.Output == res2.Output {
-			t.Errorf("expected different output for different CSS selectors, but both returned same output")
-		}
-	}()
-
-	if panicVal != nil {
-		t.Skipf("extractBySelector panics when moving attached nodes: %v", panicVal)
+	if res1.Output == res2.Output {
+		t.Errorf("expected different output for different CSS selectors, but both returned same output")
 	}
 }
 

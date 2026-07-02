@@ -393,7 +393,7 @@ func extractBySelector(root *html.Node, selector string) *html.Node {
 		Data: "div",
 	}
 	sel.Each(func(_ int, s *goquery.Selection) {
-		for _, n := range s.Nodes {
+		for _, n := range s.Clone().Nodes {
 			container.AppendChild(n)
 		}
 	})
