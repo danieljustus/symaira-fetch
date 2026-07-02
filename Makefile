@@ -37,9 +37,18 @@ test-version:
 	fi
 	@rm -f $(BINARY_NAME)
 
+.PHONY: fmt
+fmt:
+	$(GO) fmt ./...
+
 .PHONY: lint
 lint:
-	$(GO) fmt ./...
+	@UNFORMATTED=$$(gofmt -l .); \
+	if [ -n "$$UNFORMATTED" ]; then \
+		echo "gofmt check failed – the following files need formatting:" >&2; \
+		echo "$$UNFORMATTED" >&2; \
+		exit 1; \
+	fi
 	CGO_ENABLED=0 $(GO) vet ./...
 
 .PHONY: clean

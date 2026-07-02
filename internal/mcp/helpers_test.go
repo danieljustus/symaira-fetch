@@ -197,8 +197,8 @@ func TestFormatWithMeta_MarkdownFrontmatter(t *testing.T) {
 			Truncated:  false,
 		},
 		Doc: &agentdom.Document{
-			URL:      "https://example.com",
-			Islands:  []agentdom.DataIsland{},
+			URL:     "https://example.com",
+			Islands: []agentdom.DataIsland{},
 		},
 	}
 

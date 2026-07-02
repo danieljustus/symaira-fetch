@@ -104,9 +104,9 @@ func fetchAndProcess(ctx context.Context, c fetch.Client, eng Engine, fetchURL, 
 	}
 
 	return result, &fetch.Response{
-		FinalURL:    result.Meta.FinalURL,
-		StatusCode:  result.Meta.StatusCode,
-		Protocol:    result.Meta.Protocol,
+		FinalURL:   result.Meta.FinalURL,
+		StatusCode: result.Meta.StatusCode,
+		Protocol:   result.Meta.Protocol,
 	}, true
 }
 

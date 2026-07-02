@@ -35,25 +35,25 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	var (
-		flagFormat         string
-		flagRaw            bool
-		flagProfile        string
-		flagProxy          string
-		flagTimeout        string
-		flagMaxChars       int
-		flagLinks          bool
-		flagSession        string
-		flagNoCache        bool
-		flagCacheTTL       string
-		flagHeaders        []string
-		flagMethod         string
-		flagData           string
-		flagConcurrency    int
-		flagAllowPriv      bool
-		flagRobots         bool
-		flagNoRetry        bool
-		flagStoreFullText  bool
-		flagCharLimit      int
+		flagFormat        string
+		flagRaw           bool
+		flagProfile       string
+		flagProxy         string
+		flagTimeout       string
+		flagMaxChars      int
+		flagLinks         bool
+		flagSession       string
+		flagNoCache       bool
+		flagCacheTTL      string
+		flagHeaders       []string
+		flagMethod        string
+		flagData          string
+		flagConcurrency   int
+		flagAllowPriv     bool
+		flagRobots        bool
+		flagNoRetry       bool
+		flagStoreFullText bool
+		flagCharLimit     int
 	)
 
 	root := &cobra.Command{

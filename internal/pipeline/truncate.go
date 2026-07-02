@@ -22,11 +22,11 @@ const (
 
 // StoreOptions configures the truncate-and-store behaviour.
 type StoreOptions struct {
-	CharLimit int    // character budget; content over this is truncated
-	StoreDir  string // directory for storing full text files
+	CharLimit int     // character budget; content over this is truncated
+	StoreDir  string  // directory for storing full text files
 	HeadRatio float64 // fraction of CharLimit allocated to head (0-1)
 	TailRatio float64 // fraction of CharLimit allocated to tail (0-1)
-	MaxStored int    // max bytes for stored full text
+	MaxStored int     // max bytes for stored full text
 }
 
 func (o *StoreOptions) setDefaults() {

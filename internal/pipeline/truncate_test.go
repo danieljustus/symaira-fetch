@@ -14,11 +14,11 @@ func TestTruncateAndStore_ShortContentReturnedWhole(t *testing.T) {
 	content := "Short content that fits within the limit."
 
 	result, stored, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  1000,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 1000,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -42,11 +42,11 @@ func TestTruncateAndStore_LongContentHeadTailFooter(t *testing.T) {
 	content := strings.Repeat("abcdefghij", 30) // 300 chars
 
 	result, stored, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  200,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 200,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -96,11 +96,11 @@ func TestTruncateAndStore_FullTextMatchesOriginal(t *testing.T) {
 	content := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 50)
 
 	result, stored, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  500,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 500,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -128,11 +128,11 @@ func TestTruncateAndStore_OffsetCorrectness(t *testing.T) {
 	content := prefix + marker + suffix
 
 	result, _, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  800,
-		StoreDir:   storeDir,
-		HeadRatio:  0.5,
-		TailRatio:  0.5,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 800,
+		StoreDir:  storeDir,
+		HeadRatio: 0.5,
+		TailRatio: 0.5,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -162,11 +162,11 @@ func TestTruncateAndStore_StoredTextCapped(t *testing.T) {
 	content := strings.Repeat("X", 5000)
 
 	result, stored, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  500,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  maxStored,
+		CharLimit: 500,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: maxStored,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -193,11 +193,11 @@ func TestTruncateAndStore_HeadTailProportions(t *testing.T) {
 	content := head + middle + tail
 
 	result, _, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  800,
-		StoreDir:   storeDir,
-		HeadRatio:  0.5,
-		TailRatio:  0.5,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 800,
+		StoreDir:  storeDir,
+		HeadRatio: 0.5,
+		TailRatio: 0.5,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -227,11 +227,11 @@ func TestTruncateAndStore_StoreDirCreated(t *testing.T) {
 
 	content := strings.Repeat("Y", 300)
 	_, _, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  100,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 100,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -247,11 +247,11 @@ func TestTruncateAndStore_ExactLimitNotTruncated(t *testing.T) {
 	content := strings.Repeat("Z", 100)
 
 	result, stored, err := TruncateAndStore(content, StoreOptions{
-		CharLimit:  100,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 100,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -268,11 +268,11 @@ func TestTruncateAndStore_EmptyContent(t *testing.T) {
 	storeDir := t.TempDir()
 
 	result, stored, err := TruncateAndStore("", StoreOptions{
-		CharLimit:  1000,
-		StoreDir:   storeDir,
-		HeadRatio:  0.8,
-		TailRatio:  0.2,
-		MaxStored:  2 * 1024 * 1024,
+		CharLimit: 1000,
+		StoreDir:  storeDir,
+		HeadRatio: 0.8,
+		TailRatio: 0.2,
+		MaxStored: 2 * 1024 * 1024,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

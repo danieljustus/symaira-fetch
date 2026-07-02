@@ -26,8 +26,8 @@ func (e *SchemaMiss) Error() string {
 //
 // Two syntax modes are supported:
 //
-//   Typed selector:  @Type:path   — e.g. @Recipe:name, @Product:aggregateRating.ratingValue
-//   Plain field path: name, headline, aggregateRating.ratingValue, @type
+//	Typed selector:  @Type:path   — e.g. @Recipe:name, @Product:aggregateRating.ratingValue
+//	Plain field path: name, headline, aggregateRating.ratingValue, @type
 //
 // Typed selectors find a JSON-LD island whose @type matches Type and traverse path.
 // Plain field paths search all ld+json islands (including @graph nodes) for the field.

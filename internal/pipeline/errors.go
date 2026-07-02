@@ -19,8 +19,8 @@ type RecoveryHints struct {
 }
 
 type FetchError struct {
-	URL     string
-	Err     error
+	URL      string
+	Err      error
 	Recovery *RecoveryHints // nil when no recovery hint is available
 }
 

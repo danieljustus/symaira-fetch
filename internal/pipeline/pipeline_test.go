@@ -47,9 +47,9 @@ func newTestClient(t *testing.T) fetch.Client {
 func defaultCacheKey() string {
 	return (&pipeline.Options{
 		Content: pipeline.ContentOptions{
-			MaxChars:      20000,
-			IncludeLinks:  false,
-			CharThreshold: 500,
+			MaxChars:       20000,
+			IncludeLinks:   false,
+			CharThreshold:  500,
 			MaxIslandBytes: 5000,
 		},
 	}).CacheKey()

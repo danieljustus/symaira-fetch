@@ -579,7 +579,7 @@ func TestGenerateFrontmatter_Basic(t *testing.T) {
 		EstTokens: 100,
 	}
 	doc := &agentdom.Document{
-		URL:  "https://example.com",
+		URL:     "https://example.com",
 		Islands: []agentdom.DataIsland{},
 	}
 
@@ -625,8 +625,8 @@ func TestGenerateFrontmatter_FinalURLDifferent(t *testing.T) {
 		EstTokens: 50,
 	}
 	doc := &agentdom.Document{
-		URL:      "https://example.com/original",
-		Islands:  []agentdom.DataIsland{},
+		URL:     "https://example.com/original",
+		Islands: []agentdom.DataIsland{},
 	}
 
 	fm := GenerateFrontmatter(meta, doc)
@@ -647,8 +647,8 @@ func TestGenerateFrontmatter_FinalURLSame(t *testing.T) {
 		EstTokens: 50,
 	}
 	doc := &agentdom.Document{
-		URL:      "https://example.com",
-		Islands:  []agentdom.DataIsland{},
+		URL:     "https://example.com",
+		Islands: []agentdom.DataIsland{},
 	}
 
 	fm := GenerateFrontmatter(meta, doc)
