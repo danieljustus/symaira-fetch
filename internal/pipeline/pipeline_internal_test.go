@@ -1180,6 +1180,43 @@ func TestRun_SchemaPath_NoMatch(t *testing.T) {
 	}
 }
 
+func TestRun_SchemaPath_MalformedPath(t *testing.T) {
+	body := []byte(`<html><head>
+<script type="application/ld+json">{"@type":"Article","headline":"Test"}</script>
+</head><body>
+<p>Content here to pass the character threshold for processing through the pipeline.</p>
+</body></html>`)
+	tree, err := dom.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        body,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/article",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	_, err = Run(context.Background(), c, eng, "https://example.com/article", Options{
+		Format:     FormatMarkdown,
+		SchemaPath: "Recipe:name",
+		Cache:      CacheOptions{NoCache: true},
+		Security:   SecurityOptions{AllowPrivate: true},
+	})
+	if err == nil {
+		t.Fatal("expected SchemaError for malformed path")
+	}
+	var schemaErr *SchemaError
+	if !errors.As(err, &schemaErr) {
+		t.Errorf("expected SchemaError, got %T: %v", err, err)
+	}
+}
+
 // --- Issue #178 regression tests ---
 
 func TestExtractBySelector_Match(t *testing.T) {
@@ -1534,5 +1571,172 @@ func TestCacheKey_DifferentSchemaPaths_DifferentOutput(t *testing.T) {
 
 	if res1.Output == res2.Output {
 		t.Errorf("expected different output for different schema paths, but both returned same output")
+	}
+}
+
+func TestOptions_SetDefaults_StoreFullText_CharLimitZero(t *testing.T) {
+	o := Options{
+		StoreFullText: true,
+		CharLimit:     0,
+	}
+	o.setDefaults()
+	if o.CharLimit != DefaultCharLimit {
+		t.Errorf("expected CharLimit=%d after setDefaults, got %d", DefaultCharLimit, o.CharLimit)
+	}
+}
+
+func TestRun_StoreFullText(t *testing.T) {
+	longBody := []byte(`<html><body><article>` + strings.Repeat("<p>"+strings.Repeat("word ", 50)+"</p>", 200) + `</article></body></html>`)
+	tree, err := dom.Parse(longBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        longBody,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/long",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+	storeDir := t.TempDir()
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/long", Options{
+		Format: FormatMarkdown,
+		Content: ContentOptions{
+			MaxChars: 100000,
+		},
+		Cache: CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+		StoreFullText: true,
+		CharLimit:     2000,
+		StoreDir:      storeDir,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(res.Output, "Full text stored:") {
+		t.Errorf("expected 'Full text stored:' footer in output, got:\n%s", res.Output[:min(200, len(res.Output))])
+	}
+}
+
+func TestRun_StoreFullText_DefaultStoreDir(t *testing.T) {
+	longBody := []byte(`<html><body><article>` + strings.Repeat("<p>"+strings.Repeat("word ", 50)+"</p>", 200) + `</article></body></html>`)
+	tree, err := dom.Parse(longBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        longBody,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/long",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/long", Options{
+		Format: FormatMarkdown,
+		Content: ContentOptions{
+			MaxChars: 100000,
+		},
+		Cache: CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+		StoreFullText: true,
+		CharLimit:     2000,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(res.Output, "Full text stored:") {
+		t.Errorf("expected 'Full text stored:' footer, got:\n%s", res.Output[:min(200, len(res.Output))])
+	}
+}
+
+func TestRun_StoreFullText_ShortContent(t *testing.T) {
+	shortBody := []byte(`<html><body><p>Short content</p></body></html>`)
+	tree, err := dom.Parse(shortBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        shortBody,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/short",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/short", Options{
+		Format: FormatMarkdown,
+		Content: ContentOptions{
+			MaxChars: 20000,
+		},
+		Cache: CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+		StoreFullText: true,
+		CharLimit:     50000,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if strings.Contains(res.Output, "Full text stored:") {
+		t.Errorf("should not contain footer for short content, got:\n%s", res.Output)
+	}
+}
+
+func TestRun_StoreFullText_StoreDirHomeErr(t *testing.T) {
+	longBody := []byte(`<html><body><article>` + strings.Repeat("<p>"+strings.Repeat("word ", 50)+"</p>", 200) + `</article></body></html>`)
+	tree, err := dom.Parse(longBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode:  200,
+			Body:        longBody,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/long",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng := &fakeEngine{tree: tree}
+	storeDir := t.TempDir()
+
+	res, err := Run(context.Background(), c, eng, "https://example.com/long", Options{
+		Format: FormatMarkdown,
+		Content: ContentOptions{
+			MaxChars: 100000,
+		},
+		Cache: CacheOptions{NoCache: true},
+		Security: SecurityOptions{
+			AllowPrivate: true,
+		},
+		StoreFullText: true,
+		CharLimit:     2000,
+		StoreDir:      storeDir,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(res.Output, "Full text stored:") {
+		t.Errorf("expected footer, got:\n%s", res.Output[:min(200, len(res.Output))])
 	}
 }
