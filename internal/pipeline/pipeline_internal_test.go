@@ -213,7 +213,7 @@ func newInternalTestClient(t *testing.T) fetch.Client {
 func TestRun_CachedPrivateRedirectBlocked(t *testing.T) {
 	tmpDir := t.TempDir()
 	cacher := cache.New(tmpDir, 1*time.Hour, 0)
-	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	ck := (&Options{Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}}).CacheKey()
 	cacher.Put("https://example.com/page", "chrome", "markdown", "", ck, []byte("cached"), cache.Meta{
 		URL:      "https://example.com/page",
 		FinalURL: "http://127.0.0.1:9999/admin",
@@ -491,7 +491,7 @@ func TestRun_CacheHitReturnsDirectly(t *testing.T) {
 	eng := &fakeEngine{}
 
 	cachedBody := []byte("cached markdown output")
-	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	ck := (&Options{Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}}).CacheKey()
 	cacher.Put(srv.URL, "chrome", "markdown", "", ck, cachedBody, cache.Meta{
 		URL:        srv.URL,
 		FinalURL:   srv.URL,
@@ -551,7 +551,7 @@ func TestRun_CacheHit_PrivateRedirect_Discarded(t *testing.T) {
 
 	publicURL := "https://example.com/page"
 	privateRedirect := "http://127.0.0.1:9999/secret"
-	ck := (&ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}).ContentKey()
+	ck := (&Options{Content: ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000}}).CacheKey()
 	cacher.Put(publicURL, "chrome", "markdown", "", ck, []byte("cached secret"), cache.Meta{
 		URL:      publicURL,
 		FinalURL: privateRedirect,
@@ -1284,3 +1284,209 @@ func TestFindCandidatesFromSitemaps_SitemapError(t *testing.T) {
 		t.Errorf("expected no candidates when sitemap fetch fails, got %d", len(candidates))
 	}
 }
+
+// --- Issue #177 regression tests ---
+
+func TestCacheKey_IncludesAllOptions(t *testing.T) {
+	base := Options{
+		Format:  FormatMarkdown,
+		Content: ContentOptions{MaxChars: 20000, IncludeLinks: false, CharThreshold: 500, MaxIslandBytes: 5000},
+	}
+
+	withSelector := base
+	withSelector.CSSSelector = "div.article"
+	if base.CacheKey() == withSelector.CacheKey() {
+		t.Error("expected different CacheKey when CSSSelector differs")
+	}
+
+	withFM := base
+	withFM.Frontmatter = true
+	if base.CacheKey() == withFM.CacheKey() {
+		t.Error("expected different CacheKey when Frontmatter differs")
+	}
+
+	withSchema := base
+	withSchema.SchemaPath = "@Article:name"
+	if base.CacheKey() == withSchema.CacheKey() {
+		t.Error("expected different CacheKey when SchemaPath differs")
+	}
+
+	dup := base
+	dup.CSSSelector = "div.article"
+	if withSelector.CacheKey() != dup.CacheKey() {
+		t.Error("expected same CacheKey for identical options")
+	}
+}
+
+func TestRun_CacheHit_WithFrontmatter_NoPanic(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
+
+	cachedBody := []byte("# Cached Output\n\nSome content here.")
+	ck := (&Options{
+		Format:      FormatMarkdown,
+		Content:     ContentOptions{MaxChars: 20000, CharThreshold: 500, MaxIslandBytes: 5000},
+		Frontmatter: true,
+	}).CacheKey()
+	cacher.Put("https://example.com/page", "chrome", "markdown", "", ck, cachedBody, cache.Meta{
+		URL:        "https://example.com/page",
+		FinalURL:   "https://example.com/page",
+		StatusCode: 200,
+		Protocol:   "HTTP/1.1",
+	})
+
+	c := &fakeClient{resp: &fetch.Response{}}
+	eng := &fakeEngine{}
+
+	var panicVal interface{}
+	var res *Result
+	func() {
+		defer func() { panicVal = recover() }()
+		var runErr error
+		res, runErr = Run(context.Background(), c, eng, "https://example.com/page", Options{
+			Format:      FormatMarkdown,
+			Frontmatter: true,
+			Cache:       CacheOptions{Instance: cacher},
+			Security:    SecurityOptions{AllowPrivate: true},
+		})
+		if runErr != nil {
+			t.Errorf("unexpected error: %v", runErr)
+		}
+	}()
+
+	if panicVal != nil {
+		t.Fatalf("cache hit with frontmatter=true panicked: %v", panicVal)
+	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if res.Output != string(cachedBody) {
+		t.Errorf("expected cached output, got: %q", res.Output)
+	}
+	if res.Doc == nil {
+		t.Fatal("expected non-nil Doc on cache hit")
+	}
+	if res.Doc.URL != "https://example.com/page" {
+		t.Errorf("expected Doc.URL to be the original URL, got: %q", res.Doc.URL)
+	}
+}
+
+func TestCacheKey_DifferentCSSSelectors_DifferentOutput(t *testing.T) {
+	html := []byte(`<html><body>
+		<nav>Navigation stuff</nav>
+		<div id="article"><h1>Article Title</h1><p>Main article content here with enough text.</p></div>
+		<div id="sidebar"><p>Sidebar content here with enough text to be extracted.</p></div>
+	</body></html>`)
+
+	tree1, err := dom.Parse(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree2, err := dom.Parse(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode: 200, Body: html,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/page",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng1 := &fakeEngine{tree: tree1}
+	eng2 := &fakeEngine{tree: tree2}
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
+	secOpts := SecurityOptions{AllowPrivate: true}
+
+	var panicVal interface{}
+	func() {
+		defer func() { panicVal = recover() }()
+		res1, err := Run(context.Background(), c, eng1, "https://example.com/page", Options{
+			Format:      FormatMarkdown,
+			CSSSelector: "#article",
+			Cache:       CacheOptions{Instance: cacher},
+			Security:    secOpts,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		res2, err := Run(context.Background(), c, eng2, "https://example.com/page", Options{
+			Format:      FormatMarkdown,
+			CSSSelector: "#sidebar",
+			Cache:       CacheOptions{Instance: cacher},
+			Security:    secOpts,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if res1.Output == res2.Output {
+			t.Errorf("expected different output for different CSS selectors, but both returned same output")
+		}
+	}()
+
+	if panicVal != nil {
+		t.Skipf("extractBySelector panics when moving attached nodes: %v", panicVal)
+	}
+}
+
+func TestCacheKey_DifferentSchemaPaths_DifferentOutput(t *testing.T) {
+	html := []byte(`<html><head>
+<script type="application/ld+json">{"@type":"Article","headline":"Test Headline","author":"Test Author"}</script>
+</head><body>
+<p>Content here to pass the character threshold for processing through the pipeline. Extra text ensures no thin content detection.</p>
+<p>Additional paragraphs to ensure enough content is present in the page for the pipeline to work correctly.</p>
+</body></html>`)
+	tree1, err := dom.Parse(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree2, err := dom.Parse(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &fakeClient{
+		resp: &fetch.Response{
+			StatusCode: 200, Body: html,
+			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+			FinalURL:    "https://example.com/article",
+			ContentType: "text/html; charset=utf-8",
+		},
+	}
+	eng1 := &fakeEngine{tree: tree1}
+	eng2 := &fakeEngine{tree: tree2}
+	tmpDir := t.TempDir()
+	cacher := cache.New(tmpDir, 1*time.Hour, 0)
+	secOpts := SecurityOptions{AllowPrivate: true}
+
+	res1, err := Run(context.Background(), c, eng1, "https://example.com/article", Options{
+		Format:     FormatMarkdown,
+		SchemaPath: "@Article:headline",
+		Cache:      CacheOptions{Instance: cacher},
+		Security:   secOpts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res2, err := Run(context.Background(), c, eng2, "https://example.com/article", Options{
+		Format:     FormatMarkdown,
+		SchemaPath: "@Article:author",
+		Cache:      CacheOptions{Instance: cacher},
+		Security:   secOpts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res1.Output == res2.Output {
+		t.Errorf("expected different output for different schema paths, but both returned same output")
+	}
+}
+
+

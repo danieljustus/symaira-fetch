@@ -114,6 +114,13 @@ func (o *ContentOptions) ContentKey() string {
 	return fmt.Sprintf("mc=%d il=%v ct=%d mi=%d", o.MaxChars, o.IncludeLinks, o.CharThreshold, o.MaxIslandBytes)
 }
 
+// CacheKey returns a deterministic string encoding every option that
+// affects the cached output, including CSSSelector, Frontmatter, and
+// SchemaPath in addition to ContentOptions fields.
+func (o *Options) CacheKey() string {
+	return fmt.Sprintf("%s cs=%s fm=%v sp=%s", o.Content.ContentKey(), o.CSSSelector, o.Frontmatter, o.SchemaPath)
+}
+
 // Result holds the pipeline output.
 type Result struct {
 	Doc    *agentdom.Document
@@ -154,7 +161,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		ck := o.Content.ContentKey()
+		ck := o.CacheKey()
 		if body, meta, ok := cacher.Get(rawURL, profile, string(o.Format), o.Session, ck); ok {
 			if !o.Security.AllowPrivate && meta.FinalURL != "" && meta.FinalURL != rawURL {
 				if err := fetch.CheckSSRF(meta.FinalURL); err != nil {
@@ -165,6 +172,10 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 			if cacher != nil {
 				slog.Debug("cache hit", "url", rawURL)
 				return &Result{
+					Doc: &agentdom.Document{
+						URL:      rawURL,
+						FinalURL: meta.FinalURL,
+					},
 					Output: string(body),
 					Meta: agentdom.Meta{
 						FinalURL:   meta.FinalURL,
@@ -283,7 +294,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 					if profile == "" {
 						profile = "chrome"
 					}
-					ck := o.Content.ContentKey()
+					ck := o.CacheKey()
 					if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(fbResult.Output), cache.Meta{
 						URL:         rawURL,
 						FinalURL:    fbResult.Meta.FinalURL,
@@ -321,7 +332,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		if profile == "" {
 			profile = "chrome"
 		}
-		ck := o.Content.ContentKey()
+		ck := o.CacheKey()
 		if err := cacher.Put(rawURL, profile, string(o.Format), o.Session, ck, []byte(output), cache.Meta{
 			URL:         rawURL,
 			FinalURL:    resp.FinalURL,

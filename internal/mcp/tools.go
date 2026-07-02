@@ -222,7 +222,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 func formatWithMeta(res *pipeline.Result, format pipeline.Format, frontmatter bool) string {
 	if format == pipeline.FormatMarkdown {
 		output := res.Output
-		if frontmatter {
+		if frontmatter && res.Doc != nil {
 			fm := render.GenerateFrontmatter(res.Meta, res.Doc)
 			output = fm + output
 		}

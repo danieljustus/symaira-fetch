@@ -103,7 +103,7 @@ func DefaultDir() string {
 // cacheKeyVersion is bumped when the key scheme changes to invalidate
 // incompatible old entries automatically. Bump this whenever the hash
 // input fields change so stale cached results are never served.
-const cacheKeyVersion = "v2"
+const cacheKeyVersion = "v3"
 
 func (c *Cache) key(url, profile, format, session, contentKey string) string {
 	h := sha256.New()
