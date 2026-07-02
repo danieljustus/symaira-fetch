@@ -78,6 +78,6 @@ brews:
     directory: Formula
     homepage: https://github.com/danieljustus/symaira-fetch
     description: AI-native web fetch engine for LLM agents
-    license: MIT
+    license: Apache-2.0
     test: |
       system "#{bin}/symfetch", "version"
