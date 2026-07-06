@@ -14,6 +14,7 @@ import (
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-corekit/logkit"
 	"github.com/danieljustus/symaira-corekit/updatecheck"
+	"github.com/danieljustus/symaira-corekit/versionkit"
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -382,12 +383,17 @@ func parseHeaders(raw []string) map[string]string {
 
 func newVersionCmd() *cobra.Command {
 	var flagCheck bool
+	var flagJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("symfetch", version)
+			info := versionkit.New("symfetch", version, 1)
+			if flagJSON {
+				return info.Write(os.Stdout)
+			}
+			fmt.Println(info.String())
 
 			if flagCheck {
 				checker := updatecheck.NewChecker("danieljustus", "symaira-fetch")
@@ -408,6 +414,7 @@ func newVersionCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&flagCheck, "check", false, "Check for updates on GitHub")
+	cmd.Flags().BoolVar(&flagJSON, "json", false, "Emit version as machine-readable JSON")
 	return cmd
 }
 

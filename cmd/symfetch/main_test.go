@@ -1157,4 +1157,22 @@ func TestVersionCmd_Check(t *testing.T) {
 	if !strings.Contains(output, "symfetch") {
 		t.Errorf("version output should contain 'symfetch', got: %s", output)
 	}
+
+	// Test --json flag
+	cmdJSON := newRootCmd()
+	cmdJSON.SetArgs([]string{"version", "--json"})
+	rJSON, wJSON, _ := os.Pipe()
+	os.Stdout = wJSON
+	err = cmdJSON.Execute()
+	wJSON.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatalf("Execute() json error = %v", err)
+	}
+	var outBufJSON bytes.Buffer
+	outBufJSON.ReadFrom(rJSON)
+	outputJSON := outBufJSON.String()
+	if !strings.Contains(outputJSON, `"tool":"symfetch"`) {
+		t.Errorf("expected JSON output to contain tool 'symfetch', got %q", outputJSON)
+	}
 }
