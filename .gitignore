@@ -26,3 +26,12 @@ AGENTS.md
 
 # Documentation builds / local notes
 docs/
+
+# Local agent reports / session state
+.github/coverage/
+.github/prerelease/
+.github/review/
+.omo/
+.omo/run-continuation/
+.omo/notepads/
+coverage.html
