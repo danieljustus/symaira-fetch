@@ -327,9 +327,9 @@ func TestIsLocalhost(t *testing.T) {
 		addr string
 		want bool
 	}{
-		{":8787", false},          // all interfaces
-		{"0.0.0.0:8787", false},   // all interfaces
-		{"[::]:8787", false},     // all interfaces
+		{":8787", false},        // all interfaces
+		{"0.0.0.0:8787", false}, // all interfaces
+		{"[::]:8787", false},    // all interfaces
 		{"127.0.0.1:8787", true},
 		{"[::1]:8787", true},
 		{"localhost:8787", true},

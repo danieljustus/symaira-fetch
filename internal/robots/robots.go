@@ -126,6 +126,7 @@ func (c *Checker) groupsForDomain(ctx context.Context, domain string) ([]group, 
 		return nil, err
 	}
 
+	// codeql[go/request-forgery] False positive: dynamic domain fetch is by design for a web fetcher, and SSRF is prevented by CheckSSRF.
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
