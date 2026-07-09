@@ -21,7 +21,7 @@ func TestMCPWaybackSnapshots(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		if targetURL == "https://empty.com" {
 			// Return empty response (only header row)
 			json.NewEncoder(w).Encode([][]string{
@@ -66,7 +66,7 @@ func TestMCPWaybackSnapshots(t *testing.T) {
 			t.Fatalf("unexpected error response: %v", res)
 		}
 		content := res["content"].([]interface{})[0].(map[string]interface{})["text"].(string)
-		
+
 		if !strings.Contains(content, "20240101120000") {
 			t.Errorf("expected timestamp in output, got: %s", content)
 		}
