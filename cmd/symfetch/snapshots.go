@@ -13,6 +13,8 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/archive"
 )
 
+var cdxBaseURL = ""
+
 func newSnapshotsCmd() *cobra.Command {
 	var (
 		flagFrom      string
@@ -54,7 +56,7 @@ Examples:
 				query.MatchType = flagMatchType
 			}
 
-			client := archive.NewCDXClient("", nil)
+			client := archive.NewCDXClient(cdxBaseURL, nil)
 			ctx := context.Background()
 
 			snaps, err := client.Lookup(ctx, query)

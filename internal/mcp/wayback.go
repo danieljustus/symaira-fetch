@@ -9,6 +9,8 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/archive"
 )
 
+var CdxBaseURL = ""
+
 func registerWaybackTools(srv *mcpserver.Server) {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "wayback_snapshots",
@@ -59,7 +61,7 @@ func makeWaybackSnapshotsHandler() func(ctx context.Context, input json.RawMessa
 			query.MatchType = mt
 		}
 
-		client := archive.NewCDXClient("", nil)
+		client := archive.NewCDXClient(CdxBaseURL, nil)
 		snaps, err := client.Lookup(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("[wayback] %w", err)
