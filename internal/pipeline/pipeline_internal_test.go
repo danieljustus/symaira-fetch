@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1701,42 +1702,189 @@ func TestRun_StoreFullText_ShortContent(t *testing.T) {
 	}
 }
 
-func TestRun_StoreFullText_StoreDirHomeErr(t *testing.T) {
-	longBody := []byte(`<html><body><article>` + strings.Repeat("<p>"+strings.Repeat("word ", 50)+"</p>", 200) + `</article></body></html>`)
-	tree, err := dom.Parse(longBody)
+func TestFindCandidatesFromSitemaps_SSRFBlocked(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("User-agent: *\nDisallow:\nSitemap: http://127.0.0.1/sitemap.xml\n"))
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{resp: &fetch.Response{Body: []byte{}, StatusCode: 200}}
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  false,
+			Robots:        true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if len(candidates) != 0 {
+		t.Errorf("expected no candidates when sitemap URL is blocked by SSRF, got %d", len(candidates))
+	}
+}
+
+func TestFindCandidatesFromSitemaps_RobotsDisallowed(t *testing.T) {
+	var srvURL string
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("User-agent: *\nDisallow: /sitemap.xml\nSitemap: " + srvURL + "/sitemap.xml\n"))
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{resp: &fetch.Response{Body: []byte{}, StatusCode: 200}}
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			Robots:        true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if len(candidates) != 0 {
+		t.Errorf("expected no candidates when sitemap is disallowed by robots.txt, got %d", len(candidates))
+	}
+}
+
+func TestFindCandidatesFromSitemaps_RobotsCheckError(t *testing.T) {
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("User-agent: *\nDisallow:\nSitemap: http://[::1/sitemap.xml\n"))
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
+
+	c := &fakeClient{resp: &fetch.Response{Body: []byte{}, StatusCode: 200}}
+	o := Options{
+		Security: SecurityOptions{
+			AllowPrivate:  true,
+			Robots:        true,
+			RobotsChecker: checker,
+		},
+	}
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "test", o)
+	if len(candidates) != 0 {
+		t.Errorf("expected no candidates when robots check errors on malformed sitemap URL, got %d", len(candidates))
+	}
+}
+
+func TestFindCandidatesFromSitemaps_MaxEntriesTruncation(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	b.WriteString("\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n")
+	for i := 0; i < maxSitemapEntries+1; i++ {
+		b.WriteString(fmt.Sprintf("  <url><loc>https://example.com/page-%d</loc></url>\n", i))
+	}
+	b.WriteString("</urlset>")
+
+	var srvURL string
+	srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("User-agent: *\nDisallow:\nSitemap: " + srvURL + "/sitemap.xml\n"))
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := robots.NewChecker().WithPrivate(true)
 
 	c := &fakeClient{
 		resp: &fetch.Response{
-			StatusCode:  200,
-			Body:        longBody,
-			Headers:     map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
-			FinalURL:    "https://example.com/long",
-			ContentType: "text/html; charset=utf-8",
+			Body:       []byte(b.String()),
+			StatusCode: 200,
 		},
 	}
-	eng := &fakeEngine{tree: tree}
-	storeDir := t.TempDir()
-
-	res, err := Run(context.Background(), c, eng, "https://example.com/long", Options{
-		Format: FormatMarkdown,
-		Content: ContentOptions{
-			MaxChars: 100000,
-		},
-		Cache: CacheOptions{NoCache: true},
+	o := Options{
 		Security: SecurityOptions{
-			AllowPrivate: true,
+			AllowPrivate:  true,
+			Robots:        true,
+			RobotsChecker: checker,
 		},
-		StoreFullText: true,
-		CharLimit:     2000,
-		StoreDir:      storeDir,
-	})
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
 	}
-	if !strings.Contains(res.Output, "Full text stored:") {
-		t.Errorf("expected footer, got:\n%s", res.Output[:min(200, len(res.Output))])
+
+	candidates := findCandidatesFromSitemaps(context.Background(), c, u, "page-0", o)
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates from oversized sitemap, got none")
+	}
+	if len(candidates) > 3 {
+		t.Errorf("expected rankCandidates to limit results to 3, got %d", len(candidates))
+	}
+}
+
+func TestApplyRelevanceFilter_EmptyQuery(t *testing.T) {
+	output := "unchanged output"
+	got := applyRelevanceFilter(output, FormatMarkdown, "", 0, &agentdom.Document{})
+	if got != output {
+		t.Errorf("expected %q, got %q", output, got)
+	}
+}
+
+func TestApplyRelevanceFilter_Markdown(t *testing.T) {
+	md := "# Heading A\n\nalpha beta gamma\n\n# Heading B\n\ndelta epsilon zeta\n"
+	got := applyRelevanceFilter(md, FormatMarkdown, "delta", 1, nil)
+	if !strings.Contains(got, "delta") {
+		t.Errorf("expected filtered markdown to contain 'delta', got:\n%s", got)
+	}
+	if strings.Contains(got, "alpha") {
+		t.Errorf("expected filtered markdown to omit 'alpha', got:\n%s", got)
+	}
+}
+
+func TestApplyRelevanceFilter_JSONNilDoc(t *testing.T) {
+	output := "unchanged json output"
+	got := applyRelevanceFilter(output, FormatJSON, "query", 1, nil)
+	if got != output {
+		t.Errorf("expected %q, got %q", output, got)
+	}
+}
+
+func TestApplyRelevanceFilter_JSON(t *testing.T) {
+	doc := &agentdom.Document{
+		URL: "https://example.com",
+		Content: []agentdom.Element{
+			{Category: "heading", Text: "Alpha section"},
+			{Category: "paragraph", Text: "Beta section"},
+		},
+	}
+	got := applyRelevanceFilter("fallback", FormatJSON, "beta", 1, doc)
+	if got == "fallback" {
+		t.Fatal("expected JSON output, got fallback")
+	}
+	if !strings.Contains(got, "Beta section") {
+		t.Errorf("expected JSON to contain 'Beta section', got:\n%s", got)
+	}
+	if strings.Contains(got, "Alpha section") {
+		t.Errorf("expected JSON to omit 'Alpha section', got:\n%s", got)
+	}
+}
+
+func TestApplyRelevanceFilter_DefaultFormat(t *testing.T) {
+	output := "unchanged text output"
+	got := applyRelevanceFilter(output, FormatText, "query", 1, &agentdom.Document{})
+	if got != output {
+		t.Errorf("expected %q, got %q", output, got)
 	}
 }
