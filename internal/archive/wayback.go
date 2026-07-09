@@ -160,7 +160,7 @@ func removeWaybackScripts(html string) string {
 		}
 		scriptEnd += scriptStart
 
-		scriptContent := strings.ToLower(result[scriptStart:scriptEnd+len("</script>")])
+		scriptContent := strings.ToLower(result[scriptStart : scriptEnd+len("</script>")])
 		if strings.Contains(scriptContent, "archive.org") ||
 			strings.Contains(scriptContent, "wombat.js") ||
 			strings.Contains(scriptContent, "wm-ipp") {

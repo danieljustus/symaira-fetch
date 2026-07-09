@@ -30,10 +30,10 @@ const (
 
 // Server holds configuration for the HTTP server.
 type Server struct {
-	Addr    string
-	Token   string
-	Client  fetch.Client
-	Engine  pipeline.Engine
+	Addr   string
+	Token  string
+	Client fetch.Client
+	Engine pipeline.Engine
 }
 
 // fetchRequest is the JSON body accepted by POST /fetch.
@@ -57,10 +57,10 @@ type fetchRequest struct {
 
 // fetchResponse is the JSON response from POST /fetch.
 type fetchResponse struct {
-	OK      bool              `json:"ok"`
-	Content string            `json:"content,omitempty"`
-	Error   string            `json:"error,omitempty"`
-	Meta    *responseMeta     `json:"meta,omitempty"`
+	OK      bool          `json:"ok"`
+	Content string        `json:"content,omitempty"`
+	Error   string        `json:"error,omitempty"`
+	Meta    *responseMeta `json:"meta,omitempty"`
 }
 
 // responseMeta is the subset of pipeline metadata returned to the client.

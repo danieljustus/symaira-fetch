@@ -440,9 +440,9 @@ func newMCPCmd() *cobra.Command {
 	var flagToken string
 
 	cmd := &cobra.Command{
-		Use:          "mcp",
-		Aliases:      []string{"serve"},
-		Short:        "Start the MCP stdio server or HTTP REST server",
+		Use:     "mcp",
+		Aliases: []string{"serve"},
+		Short:   "Start the MCP stdio server or HTTP REST server",
 		Long: `Start a JSON-RPC 2.0 MCP server over stdin/stdout for use with AI agents.
 
 Use --http to start an HTTP REST server instead (POST /fetch endpoint with bearer auth).`,
