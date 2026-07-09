@@ -316,20 +316,22 @@ func (s *Server) authenticate(r *http.Request) bool {
 	return strings.TrimPrefix(auth, prefix) == s.Token
 }
 
-// isLocalhost reports whether the address is a loopback listener.
+// isLocalhost reports whether the address is a loopback-only listener.
+// Addresses that bind to all interfaces (e.g. ":8787", "0.0.0.0:8787") are
+// NOT considered localhost because they are reachable from the network.
 func isLocalhost(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		host = addr
+		return false
 	}
-	if host == "" || host == "localhost" {
+	if host == "localhost" {
 		return true
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsUnspecified()
+	return ip.IsLoopback()
 }
 
 // validateURLScheme rejects non-http(s) URLs.

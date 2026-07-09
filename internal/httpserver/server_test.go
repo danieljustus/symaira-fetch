@@ -327,11 +327,12 @@ func TestIsLocalhost(t *testing.T) {
 		addr string
 		want bool
 	}{
-		{":8787", true},
+		{":8787", false},          // all interfaces
+		{"0.0.0.0:8787", false},   // all interfaces
+		{"[::]:8787", false},     // all interfaces
 		{"127.0.0.1:8787", true},
 		{"[::1]:8787", true},
 		{"localhost:8787", true},
-		{"0.0.0.0:8787", true},
 		{"192.168.1.1:8787", false},
 		{"10.0.0.1:8787", false},
 		{"example.com:8787", false},
@@ -405,14 +406,14 @@ func TestFetch_PrivateIP127Returns400(t *testing.T) {
 func isLocalhostTest(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		host = addr
+		return false
 	}
-	if host == "" || host == "localhost" {
+	if host == "localhost" {
 		return true
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsUnspecified()
+	return ip.IsLoopback()
 }
