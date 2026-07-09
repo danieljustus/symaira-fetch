@@ -57,6 +57,8 @@ func newRootCmd() *cobra.Command {
 		flagCharLimit     int
 		flagWaybackAt     string
 		flagWaybackFB     bool
+		flagQuery         string
+		flagTopK          int
 	)
 
 	root := &cobra.Command{
@@ -165,6 +167,8 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				CharLimit:        flagCharLimit,
 				WaybackFallback:  flagWaybackFB || flagWaybackAt != "",
 				WaybackTimestamp: flagWaybackAt,
+				Query:            flagQuery,
+				TopK:             flagTopK,
 			}
 			if flagRobots {
 				opts.Security.RobotsChecker = robots.NewChecker()
@@ -239,6 +243,8 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().IntVar(&flagCharLimit, "char-limit", 15000, "Per-page character limit for truncate-and-store")
 	root.Flags().StringVar(&flagWaybackAt, "at", "", "Fetch from Wayback Machine at timestamp (YYYYMMDDHHmmss)")
 	root.Flags().BoolVar(&flagWaybackFB, "wayback-fallback", false, "Enable Wayback Machine as fallback on 404/thin-content")
+	root.Flags().StringVar(&flagQuery, "query", "", "BM25 query for relevance filtering (returns only matching sections)")
+	root.Flags().IntVar(&flagTopK, "top-k", 0, "Number of top sections to return for relevance filtering (0 = all)")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
