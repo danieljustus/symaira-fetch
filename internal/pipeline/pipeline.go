@@ -21,6 +21,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/render"
+	"github.com/danieljustus/symaira-fetch/internal/relevance"
 	"github.com/danieljustus/symaira-fetch/internal/robots"
 	"github.com/danieljustus/symaira-fetch/internal/semantic"
 	"golang.org/x/net/html"
@@ -71,6 +72,8 @@ type Options struct {
 	StoreDir         string // directory for storing full text files (default ~/.cache/symfetch/fulltext)
 	WaybackFallback  bool   // enable Wayback Machine fallback on 404/thin-content
 	WaybackTimestamp string // specific Wayback timestamp to fetch (empty = latest)
+	Query            string // optional BM25 query for relevance filtering
+	TopK             int    // optional number of top sections to return (0 = all)
 }
 
 // RequestOptions carries per-request HTTP parameters for the processed path.
@@ -130,9 +133,9 @@ func (o *ContentOptions) ContentKey() string {
 // affects the cached output, including CSSSelector, Frontmatter,
 // SchemaPath, StoreFullText, and CharLimit in addition to ContentOptions fields.
 func (o *Options) CacheKey() string {
-	return fmt.Sprintf("%s cs=%s fm=%v sp=%s sft=%v cl=%d",
+	return fmt.Sprintf("%s cs=%s fm=%v sp=%s sft=%v cl=%d q=%s tk=%d",
 		o.Content.ContentKey(), o.CSSSelector, o.Frontmatter, o.SchemaPath,
-		o.StoreFullText, o.CharLimit)
+		o.StoreFullText, o.CharLimit, o.Query, o.TopK)
 }
 
 // Result holds the pipeline output.
@@ -315,6 +318,10 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 				return nil, &RenderError{Format: "markdown", Err: err}
 			}
 		}
+	}
+
+	if o.Query != "" {
+		output = applyRelevanceFilter(output, o.Format, o.Query, o.TopK, doc)
 	}
 
 	if o.StoreFullText {
@@ -859,4 +866,34 @@ func isHTTPScheme(scheme string) bool {
 // isWaybackURL reports whether the URL targets the Wayback Machine.
 func isWaybackURL(rawURL string) bool {
 	return strings.HasPrefix(rawURL, "https://web.archive.org/web/")
+}
+
+func applyRelevanceFilter(output string, format Format, query string, topK int, doc *agentdom.Document) string {
+	if query == "" {
+		return output
+	}
+
+	switch format {
+	case FormatMarkdown:
+		sections := relevance.SplitMarkdownSections(output)
+		totalSections := len(sections)
+		ranked := relevance.RankSections(query, sections, topK)
+		return relevance.ReassembleMarkdown(ranked, totalSections, len(ranked))
+	case FormatJSON:
+		if doc == nil {
+			return output
+		}
+		filtered := relevance.FilterJSONContent(query, doc.Content, func(el agentdom.Element) string {
+			return el.Text
+		}, topK)
+		doc.Content = filtered
+		data, err := render.JSON(doc)
+		if err != nil {
+			slog.Debug("relevance JSON re-render failed", "error", err)
+			return output
+		}
+		return data
+	default:
+		return output
+	}
 }

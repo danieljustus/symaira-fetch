@@ -44,7 +44,9 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"store_full_text": {"type": "boolean", "description": "Enable truncate-and-store: returns head+tail for long pages, stores full text in cache (default false)"},
 				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"},
 				"wayback_timestamp": {"type": "string", "description": "Fetch from Wayback Machine archive at this timestamp (YYYYMMDDHHmmss). When set, automatically uses Wayback fallback for 404/thin-content."},
-				"wayback_fallback": {"type": "boolean", "description": "Enable Wayback Machine as automatic fallback on 404/thin-content (default false)"}
+				"wayback_fallback": {"type": "boolean", "description": "Enable Wayback Machine as automatic fallback on 404/thin-content (default false)"},
+				"query": {"type": "string", "description": "BM25 query for relevance filtering. Returns only sections matching the query, preserving headings and structure."},
+				"top_k": {"type": "integer", "description": "Number of top sections to return for relevance filtering (0 = all matching sections)"}
 			},
 			"required": ["url"]
 		}`),
@@ -118,6 +120,12 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 			waybackFallback = true
 		}
 
+		query, _ := args["query"].(string)
+		topK := 0
+		if v, ok := args["top_k"].(float64); ok && v > 0 {
+			topK = int(v)
+		}
+
 		charLimit := pipeline.DefaultCharLimit
 		if v, ok := args["char_limit"].(float64); ok && v > 0 {
 			charLimit = int(v)
@@ -156,6 +164,8 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 			CharLimit:        charLimit,
 			WaybackFallback:  waybackFallback,
 			WaybackTimestamp: waybackTimestamp,
+			Query:            query,
+			TopK:             topK,
 		})
 		if err != nil {
 			return nil, categoriseError(err)
