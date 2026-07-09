@@ -18,6 +18,7 @@ import (
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
+	"github.com/danieljustus/symaira-fetch/internal/httpserver"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 	"github.com/danieljustus/symaira-fetch/internal/render"
@@ -434,14 +435,26 @@ func newVersionCmd() *cobra.Command {
 func newMCPCmd() *cobra.Command {
 	var flagProfile string
 	var flagProxy string
+	var flagHTTP bool
+	var flagAddr string
+	var flagToken string
 
 	cmd := &cobra.Command{
 		Use:          "mcp",
 		Aliases:      []string{"serve"},
-		Short:        "Start the MCP stdio server",
-		Long:         "Start a JSON-RPC 2.0 MCP server over stdin/stdout for use with AI agents.",
+		Short:        "Start the MCP stdio server or HTTP REST server",
+		Long: `Start a JSON-RPC 2.0 MCP server over stdin/stdout for use with AI agents.
+
+Use --http to start an HTTP REST server instead (POST /fetch endpoint with bearer auth).`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if flagHTTP {
+				token := flagToken
+				if token == "" {
+					token = os.Getenv("SYMFETCH_HTTP_TOKEN")
+				}
+				return httpserver.Start(flagAddr, token, flagProfile, flagProxy)
+			}
 			mcp.ServerVersion = version
 			p := fetch.ParseProfile(flagProfile)
 			return mcp.StartServer(p, flagProxy)
@@ -450,6 +463,9 @@ func newMCPCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&flagProfile, "profile", "chrome", "Browser profile: chrome, firefox, honest")
 	cmd.Flags().StringVar(&flagProxy, "proxy", "", "Proxy URL")
+	cmd.Flags().BoolVar(&flagHTTP, "http", false, "Start HTTP REST server instead of MCP stdio server")
+	cmd.Flags().StringVar(&flagAddr, "addr", ":8787", "HTTP listen address (host:port)")
+	cmd.Flags().StringVar(&flagToken, "token", "", "Bearer token for HTTP auth (or set SYMFETCH_HTTP_TOKEN)")
 	return cmd
 }
 
