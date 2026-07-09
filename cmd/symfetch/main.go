@@ -237,6 +237,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newConfigCmd())
+	root.AddCommand(newSnapshotsCmd())
 
 	return root
 }

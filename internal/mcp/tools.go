@@ -24,6 +24,8 @@ const (
 )
 
 func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engine, adaptivePool *batch.AdaptivePool) {
+	registerWaybackTools(srv)
+
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "fetch_url",
 		Description: "Fetch a web page and return LLM-optimized content. Uses browser-impersonating TLS to bypass basic bot detection. Returns Markdown by default.",
