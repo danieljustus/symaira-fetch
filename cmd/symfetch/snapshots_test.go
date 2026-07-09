@@ -15,7 +15,7 @@ func TestSnapshotsCommand(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		
+
 		q := r.URL.Query()
 		targetURL := q.Get("url")
 		if targetURL == "" {
@@ -24,7 +24,7 @@ func TestSnapshotsCommand(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		// Return sample CDX rows (header row first)
 		data := [][]string{
 			{"timestamp", "original", "mimetype", "statuscode", "digest", "length"},
@@ -61,12 +61,12 @@ func TestSnapshotsCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("execute failed: %v, stderr: %s", err, stderr)
 		}
-		
+
 		var results []map[string]string
 		if err := json.Unmarshal([]byte(stdout), &results); err != nil {
 			t.Fatalf("failed to decode JSON output: %v, stdout: %s", err, stdout)
 		}
-		
+
 		if len(results) != 2 {
 			t.Errorf("expected 2 snapshots, got %d", len(results))
 		}

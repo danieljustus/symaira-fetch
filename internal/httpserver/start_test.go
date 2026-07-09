@@ -35,7 +35,7 @@ func TestStartServerAndShutdown(t *testing.T) {
 	// Wait for server to start by polling /healthz
 	client := &http.Client{Timeout: 50 * time.Millisecond}
 	url := fmt.Sprintf("http://%s/healthz", addr)
-	
+
 	var ok bool
 	for i := 0; i < 40; i++ {
 		resp, err := client.Get(url)
