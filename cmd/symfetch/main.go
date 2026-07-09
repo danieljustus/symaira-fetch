@@ -55,6 +55,8 @@ func newRootCmd() *cobra.Command {
 		flagNoRetry       bool
 		flagStoreFullText bool
 		flagCharLimit     int
+		flagWaybackAt     string
+		flagWaybackFB     bool
 	)
 
 	root := &cobra.Command{
@@ -159,8 +161,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 					Headers: extraHeaders,
 					Body:    body,
 				},
-				StoreFullText: flagStoreFullText,
-				CharLimit:     flagCharLimit,
+				StoreFullText:    flagStoreFullText,
+				CharLimit:        flagCharLimit,
+				WaybackFallback:  flagWaybackFB || flagWaybackAt != "",
+				WaybackTimestamp: flagWaybackAt,
 			}
 			if flagRobots {
 				opts.Security.RobotsChecker = robots.NewChecker()
@@ -233,6 +237,8 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().BoolVar(&flagNoRetry, "no-retry", false, "Disable automatic retry on transient errors")
 	root.Flags().BoolVar(&flagStoreFullText, "store-full-text", false, "Enable truncate-and-store for long pages (Hermes-style)")
 	root.Flags().IntVar(&flagCharLimit, "char-limit", 15000, "Per-page character limit for truncate-and-store")
+	root.Flags().StringVar(&flagWaybackAt, "at", "", "Fetch from Wayback Machine at timestamp (YYYYMMDDHHmmss)")
+	root.Flags().BoolVar(&flagWaybackFB, "wayback-fallback", false, "Enable Wayback Machine as fallback on 404/thin-content")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
