@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/danieljustus/symaira-fetch/internal/archive"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"golang.org/x/net/html"
 )
@@ -56,9 +57,10 @@ func deriveLLMsTxtURL(rawURL string) string {
 	return u.String()
 }
 
-// tryFallback attempts to fetch the .md twin (primary) or site-level llms.txt
-// (secondary) and run the result through the pipeline. It never checks for
-// thin content itself, preventing recursion.
+// tryFallback attempts to fetch the .md twin (primary), site-level llms.txt
+// (secondary), or Wayback Machine snapshot (tertiary) and run the result
+// through the pipeline. It never checks for thin content itself, preventing
+// recursion.
 //
 // On success it returns the processed result, the fetch response (for cache
 // metadata), and true. On any failure it returns nil, nil, false.
@@ -77,6 +79,15 @@ func tryFallback(ctx context.Context, c fetch.Client, eng Engine, rawURL string,
 	if llmsURL != "" {
 		if result, resp, ok := fetchAndProcess(ctx, c, eng, llmsURL, rawURL, o); ok {
 			slog.Debug("thin-content fallback succeeded (llms.txt)", "original", rawURL, "llms", llmsURL, "chars", result.Meta.CharCount)
+			return result, resp, true
+		}
+	}
+
+	// Tertiary: Wayback Machine snapshot (opt-in via WaybackFallback option)
+	if o.WaybackFallback && !isWaybackURL(rawURL) {
+		waybackURL := archive.RewriteURL(rawURL, o.WaybackTimestamp)
+		if result, resp, ok := fetchAndProcess(ctx, c, eng, waybackURL, rawURL, o); ok {
+			slog.Debug("thin-content fallback succeeded (wayback)", "original", rawURL, "wayback", waybackURL, "chars", result.Meta.CharCount)
 			return result, resp, true
 		}
 	}
@@ -108,6 +119,12 @@ func fetchAndProcess(ctx context.Context, c fetch.Client, eng Engine, fetchURL, 
 		StatusCode: result.Meta.StatusCode,
 		Protocol:   result.Meta.Protocol,
 	}, true
+}
+
+// tryFetchAndProcess attempts to fetch a URL and run it through the pipeline.
+// Returns the result and true on success, nil and false on failure.
+func tryFetchAndProcess(ctx context.Context, c fetch.Client, eng Engine, fetchURL, originURL string, o Options) (*Result, *fetch.Response, bool) {
+	return fetchAndProcess(ctx, c, eng, fetchURL, originURL, o)
 }
 
 // countTextContent returns the total visible text character count of a node

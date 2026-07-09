@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/archive"
 )
 
 type frontmatterData struct {
@@ -17,6 +18,8 @@ type frontmatterData struct {
 	Lang       string `yaml:"lang,omitempty"`
 	TokensEst  int    `yaml:"tokens_est"`
 	SchemaType string `yaml:"schema_type,omitempty"`
+	Source     string `yaml:"source,omitempty"`
+	SnapshotAt string `yaml:"snapshot_at,omitempty"`
 }
 
 func GenerateFrontmatter(meta agentdom.Meta, doc *agentdom.Document) string {
@@ -44,6 +47,14 @@ func GenerateFrontmatter(meta agentdom.Meta, doc *agentdom.Document) string {
 					break
 				}
 			}
+		}
+	}
+
+	if archiveURL, ok := archive.ParseWaybackURL(doc.URL); ok {
+		fm.Source = "wayback"
+		fm.URL = archiveURL
+		if ts := extractWaybackTimestamp(doc.URL); ts != "" {
+			fm.SnapshotAt = ts
 		}
 	}
 
@@ -83,4 +94,21 @@ func extractSchemaType(jsonData []byte) string {
 	}
 
 	return ""
+}
+
+func extractWaybackTimestamp(rawURL string) string {
+	const prefix = "https://web.archive.org/web/"
+	if !strings.HasPrefix(rawURL, prefix) {
+		return ""
+	}
+	remainder := rawURL[len(prefix):]
+	parts := strings.SplitN(remainder, "/", 2)
+	if len(parts) < 1 {
+		return ""
+	}
+	ts := parts[0]
+	if ts == "*" {
+		return ""
+	}
+	return ts
 }

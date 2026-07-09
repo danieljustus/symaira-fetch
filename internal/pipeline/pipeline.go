@@ -16,6 +16,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
+	"github.com/danieljustus/symaira-fetch/internal/archive"
 	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/dom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -54,20 +55,22 @@ func ParseFormat(s string) (Format, error) {
 
 // Options configures the pipeline run.
 type Options struct {
-	Format          Format
-	Content         ContentOptions
-	Cache           CacheOptions
-	Profile         string
-	Session         string
-	Security        SecurityOptions
-	CSSSelector     string // optional CSS selector for targeted extraction
-	Frontmatter     bool   // optional YAML frontmatter output
-	SchemaPath      string // optional JSON-LD query path like "@Recipe:name"
-	DisableFallback bool   // when true, skip thin-content retry (prevents recursion)
-	Request         RequestOptions
-	StoreFullText   bool   // enable Hermes-style truncate-and-store for long pages
-	CharLimit       int    // per-page char limit for truncate-and-store (default 15000)
-	StoreDir        string // directory for storing full text files (default ~/.cache/symfetch/fulltext)
+	Format           Format
+	Content          ContentOptions
+	Cache            CacheOptions
+	Profile          string
+	Session          string
+	Security         SecurityOptions
+	CSSSelector      string // optional CSS selector for targeted extraction
+	Frontmatter      bool   // optional YAML frontmatter output
+	SchemaPath       string // optional JSON-LD query path like "@Recipe:name"
+	DisableFallback  bool   // when true, skip thin-content retry (prevents recursion)
+	Request          RequestOptions
+	StoreFullText    bool   // enable Hermes-style truncate-and-store for long pages
+	CharLimit        int    // per-page char limit for truncate-and-store (default 15000)
+	StoreDir         string // directory for storing full text files (default ~/.cache/symfetch/fulltext)
+	WaybackFallback  bool   // enable Wayback Machine fallback on 404/thin-content
+	WaybackTimestamp string // specific Wayback timestamp to fetch (empty = latest)
 }
 
 // RequestOptions carries per-request HTTP parameters for the processed path.
@@ -219,8 +222,23 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		return nil, &FetchError{URL: rawURL, Err: err}
 	}
 
+	// Strip Wayback Machine toolbar if fetched from archive.
+	if isWaybackURL(rawURL) {
+		resp.Body = []byte(archive.StripWaybackToolbar(string(resp.Body)))
+	}
+
 	if resp.StatusCode >= 400 {
 		fe := &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+
+		// Try Wayback fallback for 404/410 before ancestor probing.
+		if o.WaybackFallback && !isWaybackURL(rawURL) && (resp.StatusCode == 404 || resp.StatusCode == 410) {
+			waybackURL := archive.RewriteURL(rawURL, o.WaybackTimestamp)
+			if fbResult, _, ok := tryFetchAndProcess(ctx, c, eng, waybackURL, rawURL, o); ok {
+				slog.Debug("wayback fallback succeeded (4xx)", "original", rawURL, "wayback", waybackURL, "chars", fbResult.Meta.CharCount)
+				return fbResult, nil
+			}
+		}
+
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			fe.Recovery = probeAncestors(ctx, c, rawURL, o)
 		}
@@ -836,4 +854,9 @@ func isSafeHref(href string) bool {
 // suggestions are allowed to surface.
 func isHTTPScheme(scheme string) bool {
 	return scheme == "http" || scheme == "https"
+}
+
+// isWaybackURL reports whether the URL targets the Wayback Machine.
+func isWaybackURL(rawURL string) bool {
+	return strings.HasPrefix(rawURL, "https://web.archive.org/web/")
 }

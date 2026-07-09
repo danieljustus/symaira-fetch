@@ -24,6 +24,8 @@ const (
 )
 
 func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engine, adaptivePool *batch.AdaptivePool) {
+	registerWaybackTools(srv)
+
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "fetch_url",
 		Description: "Fetch a web page and return LLM-optimized content. Uses browser-impersonating TLS to bypass basic bot detection. Returns Markdown by default.",
@@ -40,7 +42,9 @@ func registerTools(srv *mcpserver.Server, client fetch.Client, eng pipeline.Engi
 				"frontmatter": {"type": "boolean", "description": "Prepend YAML frontmatter with metadata (title, url, fetched_at, lang, tokens)"},
 				"schema_path": {"type": "string", "description": "JSON-LD query path. Typed selectors (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue') filter by @type then traverse a dot-path. Plain field paths (e.g., 'name', 'headline', '@type') search all JSON-LD islands including @graph nodes. Returns empty on miss."},
 				"store_full_text": {"type": "boolean", "description": "Enable truncate-and-store: returns head+tail for long pages, stores full text in cache (default false)"},
-				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"}
+				"char_limit": {"type": "integer", "description": "Per-page character limit for truncate-and-store (default 15000)"},
+				"wayback_timestamp": {"type": "string", "description": "Fetch from Wayback Machine archive at this timestamp (YYYYMMDDHHmmss). When set, automatically uses Wayback fallback for 404/thin-content."},
+				"wayback_fallback": {"type": "boolean", "description": "Enable Wayback Machine as automatic fallback on 404/thin-content (default false)"}
 			},
 			"required": ["url"]
 		}`),
@@ -108,6 +112,12 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		cssSelector, _ := args["css_selector"].(string)
 		schemaPath, _ := args["schema_path"].(string)
 
+		waybackFallback, _ := args["wayback_fallback"].(bool)
+		waybackTimestamp, _ := args["wayback_timestamp"].(string)
+		if waybackTimestamp != "" {
+			waybackFallback = true
+		}
+
 		charLimit := pipeline.DefaultCharLimit
 		if v, ok := args["char_limit"].(float64); ok && v > 0 {
 			charLimit = int(v)
@@ -139,11 +149,13 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 				MaxChars:     maxChars,
 				IncludeLinks: includeLinks,
 			},
-			CSSSelector:   cssSelector,
-			Frontmatter:   frontmatter,
-			SchemaPath:    schemaPath,
-			StoreFullText: storeFullText,
-			CharLimit:     charLimit,
+			CSSSelector:      cssSelector,
+			Frontmatter:      frontmatter,
+			SchemaPath:       schemaPath,
+			StoreFullText:    storeFullText,
+			CharLimit:        charLimit,
+			WaybackFallback:  waybackFallback,
+			WaybackTimestamp: waybackTimestamp,
 		})
 		if err != nil {
 			return nil, categoriseError(err)
