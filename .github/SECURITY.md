@@ -6,7 +6,7 @@ Only the latest release of Symaira Fetch is actively supported with security upd
 
 | Version | Supported          |
 | ------- | ------------------ |
-| v0.1.x  | :white_check_mark: |
+| v0.2.x  | :white_check_mark: |
 | < v0.1  | :x:                |
 
 ## Reporting a Vulnerability
