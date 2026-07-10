@@ -73,6 +73,32 @@ type clientOptions struct {
 	enableRetry    bool
 	backoffConfig  BackoffConfig
 	rateLimiter    *HostRateLimiter
+	clock          clock
+}
+
+// clock isolates timer behavior so retry tests can advance time without
+// waiting on the wall clock.
+type clock interface {
+	Now() time.Time
+	After(time.Duration) <-chan time.Time
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time {
+	return time.Now()
+}
+
+func (realClock) After(delay time.Duration) <-chan time.Time {
+	return time.After(delay)
+}
+
+func withClock(c clock) Option {
+	return func(o *clientOptions) {
+		if c != nil {
+			o.clock = c
+		}
+	}
 }
 
 // WithProxy sets a default proxy for all requests.
@@ -111,6 +137,7 @@ func New(p Profile, opts ...Option) (Client, error) {
 		timeoutSeconds: 30,
 		maxBodyMB:      10,
 		backoffConfig:  DefaultBackoffConfig(),
+		clock:          realClock{},
 	}
 	for _, opt := range opts {
 		opt(o)

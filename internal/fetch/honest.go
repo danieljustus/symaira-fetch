@@ -209,9 +209,9 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 			return nil, fmt.Errorf("circuit breaker open for %s", extractHost(req.URL))
 		}
 
-		start := time.Now()
+		start := c.opts.clock.Now()
 		resp, err := hc.Do(httpReq)
-		elapsed := time.Since(start)
+		elapsed := c.opts.clock.Now().Sub(start)
 
 		if err == nil {
 			if IsTransientError(resp.StatusCode, nil) && c.opts.enableRetry && attempt < maxRetries {
@@ -227,7 +227,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
-				case <-time.After(delay):
+				case <-c.opts.clock.After(delay):
 				}
 				continue
 			}
@@ -286,7 +286,7 @@ func (c *honestClient) doFetchWithRetry(ctx context.Context, req Request, hc *ht
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(delay):
+		case <-c.opts.clock.After(delay):
 		}
 	}
 
