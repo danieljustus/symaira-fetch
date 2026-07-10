@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +22,67 @@ func testBackoffConfig(maxRetries int) BackoffConfig {
 		MaxDelay:     1 * time.Microsecond,
 		Multiplier:   1.0,
 		MaxRetries:   maxRetries,
+	}
+}
+
+type manualClock struct {
+	mu          sync.Mutex
+	now         time.Time
+	timers      []manualTimer
+	delays      []time.Duration
+	afterCalled chan struct{}
+}
+
+type manualTimer struct {
+	at time.Time
+	ch chan time.Time
+}
+
+func newManualClock() *manualClock {
+	return &manualClock{
+		now:         time.Unix(0, 0),
+		afterCalled: make(chan struct{}, 1),
+	}
+}
+
+func (c *manualClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *manualClock) After(delay time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	ch := make(chan time.Time, 1)
+	c.delays = append(c.delays, delay)
+	c.timers = append(c.timers, manualTimer{at: c.now.Add(delay), ch: ch})
+	select {
+	case c.afterCalled <- struct{}{}:
+	default:
+	}
+	return ch
+}
+
+func (c *manualClock) Advance(delay time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(delay)
+	ready := make([]chan time.Time, 0, len(c.timers))
+	remaining := c.timers[:0]
+	for _, timer := range c.timers {
+		if !timer.at.After(c.now) {
+			ready = append(ready, timer.ch)
+		} else {
+			remaining = append(remaining, timer)
+		}
+	}
+	c.timers = remaining
+	now := c.now
+	c.mu.Unlock()
+
+	for _, ch := range ready {
+		ch <- now
 	}
 }
 
@@ -202,6 +264,11 @@ func TestHonestClient_Retry_TransientWithRetryAfter(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
+	clock := newManualClock()
+	go func() {
+		<-clock.afterCalled
+		clock.Advance(time.Second)
+	}()
 
 	// Use a very short backoff; Retry-After=1s should dominate the delay.
 	cfg := BackoffConfig{
@@ -210,27 +277,30 @@ func TestHonestClient_Retry_TransientWithRetryAfter(t *testing.T) {
 		Multiplier:   1.0,
 		MaxRetries:   2,
 	}
-	c, err := New(ProfileHonest, WithRetry(true), WithBackoffConfig(cfg))
+	c, err := New(ProfileHonest, WithRetry(true), WithBackoffConfig(cfg), withClock(clock))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 
-	start := time.Now()
 	resp, err := c.Fetch(context.Background(), Request{
 		URL:          srv.URL,
 		AllowPrivate: true,
 	})
-	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	// Retry-After=1s should cause at least ~1s delay (minus jitter tolerance)
-	if elapsed < 800*time.Millisecond {
-		t.Fatalf("expected >=800ms delay from Retry-After header, got %v", elapsed)
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Fatalf("expected 2 attempts, got %d", got)
+	}
+	clock.mu.Lock()
+	delays := append([]time.Duration(nil), clock.delays...)
+	clock.mu.Unlock()
+	if len(delays) != 1 || delays[0] != time.Second {
+		t.Fatalf("expected a one-second retry delay, got %v", delays)
 	}
 }
 
@@ -820,7 +890,7 @@ func TestHonestClient_AllowRedirect_FollowsPrivate(t *testing.T) {
 func TestHonestClient_PerRequestTimeout(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
+		<-r.Context().Done()
 		w.Write([]byte("late"))
 	}))
 	defer srv.Close()
@@ -841,6 +911,9 @@ func TestHonestClient_PerRequestTimeout(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got: %v", err)
 	}
 }
 
