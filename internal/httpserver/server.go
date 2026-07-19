@@ -5,6 +5,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -313,7 +314,8 @@ func (s *Server) authenticate(r *http.Request) bool {
 	if !strings.HasPrefix(auth, prefix) {
 		return false
 	}
-	return strings.TrimPrefix(auth, prefix) == s.Token
+	got := strings.TrimPrefix(auth, prefix)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(s.Token)) == 1
 }
 
 // isLocalhost reports whether the address is a loopback-only listener.

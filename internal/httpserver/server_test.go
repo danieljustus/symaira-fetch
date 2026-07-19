@@ -93,6 +93,30 @@ func TestFetch_MissingTokenReturns401(t *testing.T) {
 	}
 }
 
+func TestFetch_WrongTokenReturns401(t *testing.T) {
+	srv, mux := newTestServer("secret-token", &mockClient{})
+	_ = srv
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	for _, tok := range []string{"wrong-token", "secret-toke", "secret-tokenX"} {
+		body := strings.NewReader(`{"url":"https://example.com"}`)
+		req, _ := http.NewRequest("POST", ts.URL+"/fetch", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tok)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("token %q: expected 401, got %d", tok, resp.StatusCode)
+		}
+	}
+}
+
 func TestFetch_ValidTokenSucceeds(t *testing.T) {
 	client := &mockClient{
 		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
