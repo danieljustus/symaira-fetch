@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 	"github.com/danieljustus/symaira-fetch/internal/render"
@@ -80,7 +81,17 @@ type responseMeta struct {
 // Start starts the HTTP server with graceful shutdown on SIGINT/SIGTERM.
 // All logs go to stderr; HTTP responses go to the client.
 func Start(addr, token, profile, proxy string) error {
-	client, err := fetch.New(fetch.ParseProfile(profile), fetch.WithProxy(proxy))
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Warn("config error, using defaults", "error", err)
+		cfg = config.Defaults()
+	}
+
+	client, err := fetch.New(fetch.ParseProfile(profile),
+		fetch.WithProxy(proxy),
+		fetch.WithTimeout(cfg.HTTP.TimeoutSeconds),
+		fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
+	)
 	if err != nil {
 		return fmt.Errorf("init fetch client: %w", err)
 	}
