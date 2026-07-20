@@ -45,15 +45,22 @@ type Cache struct {
 // It ensures the directory exists with 0700 permissions and fixes
 // overly permissive directories on shared systems.
 // If maxSize is 0, the default (100 MB) is used.
+//
+// A full cache-directory rescan (reconcileIndex) only runs when the
+// persisted index is missing or fails to parse; a cleanly loaded index is
+// trusted as-is, avoiding startup latency proportional to cache size on
+// every invocation.
 func New(dir string, ttl time.Duration, maxSize int64) *Cache {
 	ensureCacheDir(dir)
 	im := newIndexManager(dir)
-	im.load()
+	valid, _ := im.load()
 	if maxSize <= 0 {
 		maxSize = defaultMaxSize
 	}
 	c := &Cache{dir: dir, ttl: ttl, maxSize: maxSize, indexMgr: im}
-	c.reconcileIndex()
+	if !valid {
+		c.reconcileIndex()
+	}
 	return c
 }
 
