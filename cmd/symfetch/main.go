@@ -126,7 +126,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				fmt.Fprintf(os.Stderr, "warning: timeout %ds exceeds MCP server cap of 120s; MCP requests will be capped\n", timeoutSec)
 			}
 
-			extraHeaders := parseHeaders(flagHeaders)
+			extraHeaders, err := parseHeaders(flagHeaders)
+			if err != nil {
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid header")
+			}
 
 			p := fetch.ParseProfile(profile)
 			client, err := fetch.New(p,
@@ -393,15 +396,20 @@ func printMarkdownResult(res *pipeline.Result, frontmatter bool) {
 	}
 }
 
-func parseHeaders(raw []string) map[string]string {
+func parseHeaders(raw []string) (map[string]string, error) {
 	m := make(map[string]string, len(raw))
 	for _, h := range raw {
 		parts := strings.SplitN(h, ":", 2)
-		if len(parts) == 2 {
-			m[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid header %q: expected \"Key: Value\"", h)
 		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			return nil, fmt.Errorf("invalid header %q: expected \"Key: Value\"", h)
+		}
+		m[key] = strings.TrimSpace(parts[1])
 	}
-	return m
+	return m, nil
 }
 
 func newVersionCmd() *cobra.Command {

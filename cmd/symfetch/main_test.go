@@ -89,9 +89,10 @@ func newMultiPageServer(t *testing.T) *httptest.Server {
 
 func TestParseHeaders(t *testing.T) {
 	tests := []struct {
-		name string
-		raw  []string
-		want map[string]string
+		name    string
+		raw     []string
+		want    map[string]string
+		wantErr bool
 	}{
 		{
 			name: "empty input",
@@ -114,14 +115,19 @@ func TestParseHeaders(t *testing.T) {
 			want: map[string]string{"Key": "Value"},
 		},
 		{
-			name: "malformed header no colon",
-			raw:  []string{"BadHeader"},
-			want: map[string]string{},
+			name:    "malformed header no colon",
+			raw:     []string{"BadHeader"},
+			wantErr: true,
 		},
 		{
-			name: "empty string",
-			raw:  []string{""},
-			want: map[string]string{},
+			name:    "empty string",
+			raw:     []string{""},
+			wantErr: true,
+		},
+		{
+			name:    "empty key",
+			raw:     []string{": value"},
+			wantErr: true,
 		},
 		{
 			name: "colon in value",
@@ -132,7 +138,16 @@ func TestParseHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseHeaders(tt.raw)
+			got, err := parseHeaders(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseHeaders() expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseHeaders() unexpected error: %v", err)
+			}
 			if len(got) != len(tt.want) {
 				t.Errorf("parseHeaders() returned %d headers, want %d", len(got), len(tt.want))
 				return
@@ -1252,5 +1267,23 @@ func TestFetch_SchemaPathFlag(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Cake") {
 		t.Errorf("expected queried schema value 'Cake' in output, got: %s", stdout)
+	}
+}
+
+func TestFetch_MalformedHeaderRejected(t *testing.T) {
+	_, _, err := executeCmd(t,
+		"--header", "BadHeaderNoColon",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		"http://example.com",
+	)
+	if err == nil {
+		t.Fatal("expected error for malformed header")
+	}
+	if !strings.Contains(err.Error(), "invalid header") {
+		t.Errorf("expected 'invalid header' in error, got: %v", err)
+	}
+	code := exitcodes.ExitCodeFromError(err)
+	if code != exitcodes.ExitConfig {
+		t.Errorf("expected ExitConfig (%d), got %d", exitcodes.ExitConfig, code)
 	}
 }
