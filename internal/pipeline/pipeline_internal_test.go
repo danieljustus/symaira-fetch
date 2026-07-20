@@ -1888,3 +1888,109 @@ func TestApplyRelevanceFilter_DefaultFormat(t *testing.T) {
 		t.Errorf("expected %q, got %q", output, got)
 	}
 }
+
+func TestProbeAncestors_EdgeCases(t *testing.T) {
+	c := newInternalTestClient(t)
+	defer c.Close()
+
+	// 1. Invalid URL check
+	{
+		o := Options{Security: SecurityOptions{AllowPrivate: true}}
+		hints := probeAncestors(context.Background(), c, "://invalid-url", o)
+		if hints != nil {
+			t.Errorf("expected nil hints for invalid URL, got %v", hints)
+		}
+	}
+
+	// 2. Single segment / empty path check
+	{
+		o := Options{Security: SecurityOptions{AllowPrivate: true}}
+		hints := probeAncestors(context.Background(), c, "https://example.com", o)
+		if hints != nil {
+			t.Errorf("expected nil hints for single segment URL, got %v", hints)
+		}
+	}
+
+	// 3. SSRF checks (AllowPrivate is false, block private IP)
+	{
+		o := Options{Security: SecurityOptions{AllowPrivate: false}}
+		hints := probeAncestors(context.Background(), c, "http://127.0.0.1/docs/api/endpoint", o)
+		if hints != nil {
+			t.Errorf("expected nil hints for SSRF-blocked URL, got %v", hints)
+		}
+		// Root URL block as well
+		hintsRoot := probeAncestors(context.Background(), c, "http://127.0.0.1/endpoint", o)
+		if hintsRoot != nil {
+			t.Errorf("expected nil hints for SSRF-blocked root URL, got %v", hintsRoot)
+		}
+	}
+
+	// 4. Robots.txt block check
+	{
+		srv := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/robots.txt" {
+				w.Header().Set("Content-Type", "text/plain")
+				w.Write([]byte("User-agent: *\nDisallow: /docs/\n"))
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write([]byte(`<html><body><a href="/docs/api/page">Page</a></body></html>`))
+		}))
+		defer srv.Close()
+
+		checker := robots.NewChecker().WithPrivate(true)
+		o := Options{
+			Security: SecurityOptions{
+				AllowPrivate:  true,
+				Robots:        true,
+				RobotsChecker: checker,
+			},
+		}
+		hints := probeAncestors(context.Background(), c, srv.URL+"/docs/api/endpoint", o)
+		if hints != nil {
+			t.Errorf("expected nil hints due to robots.txt block on ancestor, got %v", hints)
+		}
+
+		// Block at root
+		srv2 := serveInternalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/robots.txt" {
+				w.Header().Set("Content-Type", "text/plain")
+				w.Write([]byte("User-agent: *\nDisallow: /\n"))
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write([]byte(`<html><body>Root</body></html>`))
+		}))
+		defer srv2.Close()
+		hints2 := probeAncestors(context.Background(), c, srv2.URL+"/endpoint", o)
+		if hints2 != nil {
+			t.Errorf("expected nil hints due to robots.txt block on root, got %v", hints2)
+		}
+	}
+}
+
+func TestFindCandidatesFromAncestor(t *testing.T) {
+	resp := &fetch.Response{
+		StatusCode: 200,
+		Body: []byte(`<html><body>
+			<a href="/docs/api/endpoint-v2">New Endpoint</a>
+			<a href="/docs/api/some-other">Other</a>
+			<a href="mailto:test@example.com">Email</a>
+			<a href="javascript:void(0)">JS</a>
+		</body></html>`),
+		FinalURL: "https://example.com/docs/api/",
+	}
+	candidates := findCandidatesFromAncestor(resp, "https://example.com/docs/api/", "endpoint")
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates, got none")
+	}
+	if candidates[0].Title != "New Endpoint" {
+		t.Errorf("expected candidate 'New Endpoint', got: %s", candidates[0].Title)
+	}
+
+	// Case with empty response body
+	emptyResp := &fetch.Response{StatusCode: 200, Body: []byte{}}
+	if res := findCandidatesFromAncestor(emptyResp, "https://example.com", "target"); res != nil {
+		t.Errorf("expected nil candidates for empty body, got %v", res)
+	}
+}

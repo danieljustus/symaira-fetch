@@ -498,3 +498,31 @@ func TestDeriveLLMsTxtURL_EmptyString(t *testing.T) {
 		t.Errorf("deriveLLMsTxtURL(%q) = %q, want %q", "", got, want)
 	}
 }
+
+func TestTryFetchAndProcess(t *testing.T) {
+	rawHTML := []byte(`<html><body><p>Hello fallbacks</p></body></html>`)
+	tree := mustParseTree(t, rawHTML)
+	c := &fakeClient{resp: &fetch.Response{
+		StatusCode: 200,
+		Body:       rawHTML,
+		FinalURL:   "https://example.com/fallback-page",
+		Headers:    map[string][]string{"Content-Type": {"text/html; charset=utf-8"}},
+	}}
+	eng := &fakeEngine{tree: tree}
+	opts := defaultTestOpts()
+
+	result, resp, ok := tryFetchAndProcess(
+		context.Background(), c, eng,
+		"https://example.com/fallback-page", "https://example.com/fallback-page",
+		opts,
+	)
+	if !ok {
+		t.Fatal("expected tryFetchAndProcess to succeed")
+	}
+	if result == nil || resp == nil {
+		t.Fatal("expected non-nil result and response")
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
