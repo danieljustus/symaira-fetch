@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
+	"github.com/danieljustus/symaira-fetch/internal/apicommon"
 	"github.com/danieljustus/symaira-fetch/internal/archive"
 )
 
@@ -42,7 +43,7 @@ func makeWaybackSnapshotsHandler() func(ctx context.Context, input json.RawMessa
 			return nil, fmt.Errorf("missing required argument 'url'")
 		}
 
-		if err := validateURLScheme(rawURL); err != nil {
+		if err := apicommon.ValidateURLScheme(rawURL); err != nil {
 			return nil, err
 		}
 
