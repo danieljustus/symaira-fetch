@@ -212,7 +212,7 @@ func TestPrintMarkdownResult(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			printMarkdownResult(tt.res)
+			printMarkdownResult(tt.res, false)
 
 			w.Close()
 			os.Stdout = old
@@ -1174,5 +1174,83 @@ func TestVersionCmd_Check(t *testing.T) {
 	outputJSON := outBufJSON.String()
 	if !strings.Contains(outputJSON, `"tool":"symfetch"`) {
 		t.Errorf("expected JSON output to contain tool 'symfetch', got %q", outputJSON)
+	}
+}
+
+func newSelectorTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>Selector Page</title></head><body>
+			<div id="article-body"><p>Article content</p></div>
+			<div id="sidebar"><p>Sidebar content</p></div>
+		</body></html>`))
+	}))
+}
+
+func TestFetch_SelectorFlag(t *testing.T) {
+	srv := newSelectorTestServer(t)
+	defer srv.Close()
+
+	stdout, stderr, err := executeCmd(t,
+		"--selector", "#article-body",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL,
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v, stderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, "Article content") {
+		t.Errorf("expected selected content in output, got: %s", stdout)
+	}
+	if strings.Contains(stdout, "Sidebar content") {
+		t.Errorf("expected sidebar content to be excluded, got: %s", stdout)
+	}
+}
+
+func TestFetch_FrontmatterFlag(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	stdout, _, err := executeCmd(t,
+		"--frontmatter",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL,
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "---\n") {
+		t.Errorf("expected YAML frontmatter delimiters, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "title: Test Page") {
+		t.Errorf("expected title in frontmatter, got: %s", stdout)
+	}
+}
+
+func newSchemaTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><title>Recipe Page</title>
+			<script type="application/ld+json">{"@type":"Recipe","name":"Cake"}</script>
+			</head><body><p>Recipe body</p></body></html>`))
+	}))
+}
+
+func TestFetch_SchemaPathFlag(t *testing.T) {
+	srv := newSchemaTestServer(t)
+	defer srv.Close()
+
+	stdout, _, err := executeCmd(t,
+		"--schema-path", "@Recipe:name",
+		"--allow-private", "--no-cache", "--profile", "honest",
+		srv.URL,
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "Cake") {
+		t.Errorf("expected queried schema value 'Cake' in output, got: %s", stdout)
 	}
 }

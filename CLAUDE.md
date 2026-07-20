@@ -18,6 +18,9 @@ Guidelines and commands for developers and AI agents working on this codebase.
 - **JSON output**: `./symfetch https://example.com --format json`
 - **Multiple URLs**: `./symfetch https://example.com https://iana.org`
 - **With links**: `./symfetch https://example.com --links`
+- **CSS selector**: `./symfetch https://example.com --selector ".article-body"`
+- **YAML frontmatter**: `./symfetch https://example.com --frontmatter`
+- **JSON-LD schema query**: `./symfetch https://example.com --schema-path "@Recipe:name"`
 - **Firefox profile**: `./symfetch https://example.com --profile firefox`
 - **Write default config**: `./symfetch config init`
 - **Start MCP server**: `./symfetch mcp`
