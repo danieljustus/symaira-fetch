@@ -37,6 +37,9 @@ URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content S
 - **SPA skeleton detection** — Heuristic detection of client-rendered single-page apps that return near-empty HTML shells
 - **4xx recovery hints** — On HTTP 4xx errors, probes ancestor paths and sitemaps to suggest nearest reachable alternatives
 - **MCP server** — JSON-RPC 2.0 over stdio, works with Claude Code and any MCP client
+- **HTTP REST server** — `symfetch mcp --http` exposes a bearer-authenticated `POST /fetch` endpoint for non-MCP integrations
+- **Wayback Machine integration** — list historical snapshots (`snapshots` command) or fall back to an archived copy on 404/thin content (`--wayback-fallback`, `--at`)
+- **BM25 relevance filtering** — `--query` returns only the sections of a page matching a search query, ranked by BM25 score
 - **CGO-free** — cross-compiles to Linux/macOS/Windows amd64+arm64
 - **SSRF guard** — blocks private/loopback addresses in MCP mode
 
@@ -118,6 +121,21 @@ symfetch config init
 
 # Start MCP server
 symfetch mcp
+
+# Start HTTP REST server instead (bearer auth via --token or SYMFETCH_HTTP_TOKEN)
+symfetch mcp --http --addr :8787 --token "$SYMFETCH_HTTP_TOKEN"
+
+# Limit output to sections matching a query (BM25 relevance filtering)
+symfetch https://example.com --query "pricing tiers" --top-k 3
+
+# Fall back to a Wayback Machine snapshot on 404 or thin content
+symfetch https://example.com --wayback-fallback
+
+# Fetch a specific historical snapshot directly
+symfetch https://example.com --at 20240115120000
+
+# List available Wayback Machine snapshots for a URL
+symfetch snapshots https://example.com --from 20240101 --to 20241231 --limit 10
 ```
 
 ## MCP Integration
@@ -153,6 +171,24 @@ Available MCP tools:
 | `char_limit` | integer | `15000` | Per-page character limit for truncate-and-store. |
 
 > **Note:** The MCP server caps `timeout_seconds` at 120 seconds. The CLI `--timeout` flag has no maximum, but values above 120s will produce a warning since MCP requests cannot exceed the cap.
+
+## HTTP REST Server
+
+For integrations that can't speak MCP/stdio, `symfetch mcp --http` starts a plain HTTP server instead:
+
+```bash
+export SYMFETCH_HTTP_TOKEN="$(openssl rand -hex 32)"
+symfetch mcp --http --addr :8787
+```
+
+```bash
+curl -X POST http://localhost:8787/fetch \
+  -H "Authorization: Bearer $SYMFETCH_HTTP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "format": "markdown"}'
+```
+
+A token is mandatory when `--addr` binds to a non-loopback address; set it via `--token` or `SYMFETCH_HTTP_TOKEN`. When a token is set, every request must send the matching `Authorization: Bearer <token>` header. When `--addr` is a loopback address (e.g. `localhost:8787`) and no token is set, requests are accepted without authentication. The endpoint accepts the same options as `fetch_url` over MCP (`css_selector`, `frontmatter`, `schema_path`, `store_full_text`, `char_limit`).
 
 ## Configuration
 
