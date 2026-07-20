@@ -80,6 +80,15 @@ symfetch https://example.com --profile firefox
 # With links table
 symfetch https://example.com --links
 
+# Extract specific elements via CSS selector
+symfetch https://example.com --selector ".article-body"
+
+# Prepend YAML frontmatter with metadata
+symfetch https://example.com --frontmatter
+
+# Query JSON-LD structured data by path
+symfetch https://example.com --schema-path "@Recipe:name"
+
 # POST with JSON body
 symfetch https://api.example.com -X POST -H "Content-Type: application/json" -d '{"key":"value"}'
 

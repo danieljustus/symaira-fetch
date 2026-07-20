@@ -15,13 +15,13 @@ import (
 	"github.com/danieljustus/symaira-corekit/logkit"
 	"github.com/danieljustus/symaira-corekit/updatecheck"
 	"github.com/danieljustus/symaira-corekit/versionkit"
+	"github.com/danieljustus/symaira-fetch/internal/apicommon"
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/httpserver"
 	"github.com/danieljustus/symaira-fetch/internal/mcp"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
-	"github.com/danieljustus/symaira-fetch/internal/render"
 	"github.com/danieljustus/symaira-fetch/internal/robots"
 )
 
@@ -60,6 +60,9 @@ func newRootCmd() *cobra.Command {
 		flagWaybackFB     bool
 		flagQuery         string
 		flagTopK          int
+		flagSelector      string
+		flagFrontmatter   bool
+		flagSchemaPath    string
 	)
 
 	root := &cobra.Command{
@@ -123,7 +126,10 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				fmt.Fprintf(os.Stderr, "warning: timeout %ds exceeds MCP server cap of 120s; MCP requests will be capped\n", timeoutSec)
 			}
 
-			extraHeaders := parseHeaders(flagHeaders)
+			extraHeaders, err := parseHeaders(flagHeaders)
+			if err != nil {
+				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid header")
+			}
 
 			p := fetch.ParseProfile(profile)
 			client, err := fetch.New(p,
@@ -170,6 +176,9 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				WaybackTimestamp: flagWaybackAt,
 				Query:            flagQuery,
 				TopK:             flagTopK,
+				CSSSelector:      flagSelector,
+				Frontmatter:      flagFrontmatter,
+				SchemaPath:       flagSchemaPath,
 			}
 			if flagRobots {
 				opts.Security.RobotsChecker = robots.NewChecker()
@@ -208,7 +217,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 					continue
 				}
 				if opts.Format == pipeline.FormatMarkdown {
-					printMarkdownResult(res)
+					printMarkdownResult(res, flagFrontmatter)
 				} else {
 					fmt.Print(res.Output)
 					if !strings.HasSuffix(res.Output, "\n") {
@@ -246,6 +255,9 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 	root.Flags().BoolVar(&flagWaybackFB, "wayback-fallback", false, "Enable Wayback Machine as fallback on 404/thin-content")
 	root.Flags().StringVar(&flagQuery, "query", "", "BM25 query for relevance filtering (returns only matching sections)")
 	root.Flags().IntVar(&flagTopK, "top-k", 0, "Number of top sections to return for relevance filtering (0 = all)")
+	root.Flags().StringVar(&flagSelector, "selector", "", "CSS selector to extract specific elements (e.g., 'table.pricing', '.article-body')")
+	root.Flags().BoolVar(&flagFrontmatter, "frontmatter", false, "Prepend YAML frontmatter with metadata (title, url, fetched_at, lang, tokens)")
+	root.Flags().StringVar(&flagSchemaPath, "schema-path", "", "JSON-LD query path (e.g., '@Recipe:name', '@Product:aggregateRating.ratingValue')")
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMCPCmd())
@@ -377,22 +389,27 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 	return nil
 }
 
-func printMarkdownResult(res *pipeline.Result) {
-	fmt.Print(render.FormatMarkdownWithMeta(res.Meta, res.Output))
+func printMarkdownResult(res *pipeline.Result, frontmatter bool) {
+	fmt.Print(apicommon.FormatWithMeta(res, pipeline.FormatMarkdown, frontmatter))
 	if !strings.HasSuffix(res.Output, "\n") {
 		fmt.Println()
 	}
 }
 
-func parseHeaders(raw []string) map[string]string {
+func parseHeaders(raw []string) (map[string]string, error) {
 	m := make(map[string]string, len(raw))
 	for _, h := range raw {
 		parts := strings.SplitN(h, ":", 2)
-		if len(parts) == 2 {
-			m[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid header %q: expected \"Key: Value\"", h)
 		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			return nil, fmt.Errorf("invalid header %q: expected \"Key: Value\"", h)
+		}
+		m[key] = strings.TrimSpace(parts[1])
 	}
-	return m
+	return m, nil
 }
 
 func newVersionCmd() *cobra.Command {
