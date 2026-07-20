@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 )
@@ -64,90 +62,6 @@ func TestHandleRawFetch_Error(t *testing.T) {
 	}
 }
 
-func TestCategoriseError(t *testing.T) {
-	baseErr := errors.New("base error")
-
-	tests := []struct {
-		name string
-		err  error
-		want string
-	}{
-		{
-			name: "nil",
-			err:  nil,
-			want: "",
-		},
-		{
-			name: "blocked",
-			err:  &pipeline.BlockedError{URL: "https://example.com", Reason: "private IP"},
-			want: "[blocked_private]",
-		},
-		{
-			name: "too_large",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("too_large: body exceeds limit")},
-			want: "[too_large]",
-		},
-		{
-			name: "http_4xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 404 Not Found")},
-			want: "[http_4xx]",
-		},
-		{
-			name: "http_4xx_with_recovery",
-			err: &pipeline.FetchError{
-				URL: "https://example.com/missing",
-				Err: errors.New("HTTP 404 Not Found"),
-				Recovery: &pipeline.RecoveryHints{
-					NearestAncestor: "https://example.com/",
-					AncestorStatus:  200,
-					Candidates: []pipeline.CandidateURL{
-						{URL: "https://example.com/alternative"},
-					},
-				},
-			},
-			want: "nearest reachable ancestor",
-		},
-		{
-			name: "http_5xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 500 Internal Server Error")},
-			want: "[http_5xx]",
-		},
-		{
-			name: "dns",
-			err:  &net.DNSError{Err: "no such host", Name: "example.invalid"},
-			want: "[dns]",
-		},
-		{
-			name: "timeout",
-			err:  context.DeadlineExceeded,
-			want: "[timeout]",
-		},
-		{
-			name: "generic",
-			err:  baseErr,
-			want: "base error",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := categoriseError(tt.err)
-			if tt.err == nil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
-			}
-			if got == nil {
-				t.Fatalf("expected non-nil error, got nil")
-			}
-			if !strings.Contains(got.Error(), tt.want) {
-				t.Errorf("expected error to contain %q, got: %s", tt.want, got.Error())
-			}
-		})
-	}
-}
-
 func TestErrorToStatus(t *testing.T) {
 	tests := []struct {
 		name string
@@ -166,12 +80,12 @@ func TestErrorToStatus(t *testing.T) {
 		},
 		{
 			name: "http_4xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 404")},
+			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 404"), StatusCode: 404},
 			want: http.StatusBadGateway,
 		},
 		{
 			name: "http_5xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 500")},
+			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 500"), StatusCode: 500},
 			want: http.StatusBadGateway,
 		},
 		{
@@ -188,75 +102,6 @@ func TestErrorToStatus(t *testing.T) {
 				t.Errorf("errorToStatus(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestFormatWithMeta(t *testing.T) {
-	res := &pipeline.Result{
-		Output: "# Hello\n\nWorld",
-		Meta: agentdom.Meta{
-			Title:      "Test Page",
-			FinalURL:   "https://example.com",
-			StatusCode: 200,
-			CharCount:  100,
-			EstTokens:  25,
-			Protocol:   "HTTP/2.0",
-		},
-		Doc: &agentdom.Document{
-			URL:   "https://example.com",
-			Title: "Test Page",
-			Lang:  "en",
-		},
-	}
-
-	t.Run("markdown without frontmatter", func(t *testing.T) {
-		got := formatWithMeta(res, pipeline.FormatMarkdown, false)
-		if !strings.Contains(got, "# Hello") {
-			t.Errorf("expected markdown output to contain heading, got: %s", got)
-		}
-	})
-
-	t.Run("markdown with frontmatter", func(t *testing.T) {
-		got := formatWithMeta(res, pipeline.FormatMarkdown, true)
-		if !strings.Contains(got, "---") {
-			t.Errorf("expected frontmatter delimiters, got: %s", got)
-		}
-		if !strings.Contains(got, "# Hello") {
-			t.Errorf("expected markdown body after frontmatter, got: %s", got)
-		}
-	})
-
-	t.Run("json returns raw output", func(t *testing.T) {
-		got := formatWithMeta(res, pipeline.FormatJSON, true)
-		if got != res.Output {
-			t.Errorf("expected raw output for JSON, got: %s", got)
-		}
-	})
-}
-
-func TestCategoriseError_HTTP4xxWithCandidates(t *testing.T) {
-	candidates := []pipeline.CandidateURL{
-		{URL: "https://example.com/one", Title: "One"},
-		{URL: "https://example.com/two", Title: "Two"},
-	}
-	err := &pipeline.FetchError{
-		URL: "https://example.com/missing",
-		Err: errors.New("HTTP 404 Not Found"),
-		Recovery: &pipeline.RecoveryHints{
-			NearestAncestor: "https://example.com/",
-			AncestorStatus:  200,
-			Candidates:      candidates,
-		},
-	}
-
-	got := categoriseError(err)
-	want := "https://example.com/one"
-	if !strings.Contains(got.Error(), want) {
-		t.Errorf("expected candidate URL in error, got: %s", got.Error())
-	}
-	want = "https://example.com/two"
-	if !strings.Contains(got.Error(), want) {
-		t.Errorf("expected second candidate URL in error, got: %s", got.Error())
 	}
 }
 
@@ -297,21 +142,5 @@ func TestHandleRawFetch_Success(t *testing.T) {
 func TestErrorToStatus_Nil(t *testing.T) {
 	if errorToStatus(nil) != http.StatusInternalServerError {
 		t.Errorf("expected 500 for nil error, got %d", errorToStatus(nil))
-	}
-}
-
-func TestFormatWithMeta_NilDoc(t *testing.T) {
-	res := &pipeline.Result{
-		Output: "# Hello",
-		Meta:   agentdom.Meta{Title: "Test"},
-		Doc:    nil,
-	}
-
-	got := formatWithMeta(res, pipeline.FormatMarkdown, true)
-	if strings.Contains(got, "---") {
-		t.Errorf("expected no YAML frontmatter when doc is nil, got: %s", got)
-	}
-	if !strings.Contains(got, "# Hello") {
-		t.Errorf("expected markdown body, got: %s", got)
 	}
 }

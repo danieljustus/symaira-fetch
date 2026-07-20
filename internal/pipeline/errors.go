@@ -22,6 +22,10 @@ type FetchError struct {
 	URL      string
 	Err      error
 	Recovery *RecoveryHints // nil when no recovery hint is available
+	// StatusCode is the upstream HTTP status code that caused this error,
+	// or 0 when the failure occurred before a response was received
+	// (network, DNS, timeout, or body-size errors).
+	StatusCode int
 }
 
 func (e *FetchError) Error() string {

@@ -3,19 +3,15 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
+	"github.com/danieljustus/symaira-fetch/internal/apicommon"
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
-	"github.com/danieljustus/symaira-fetch/internal/render"
 )
 
 const (
@@ -84,7 +80,7 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 			return nil, fmt.Errorf("missing required argument 'url'")
 		}
 
-		if err := validateURLScheme(rawURL); err != nil {
+		if err := apicommon.ValidateURLScheme(rawURL); err != nil {
 			return nil, err
 		}
 
@@ -146,7 +142,7 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		if raw {
 			resp, err := client.Fetch(fetchCtx, fetch.Request{URL: rawURL, AllowPrivate: false})
 			if err != nil {
-				return nil, categoriseError(err)
+				return nil, apicommon.CategoriseError(err)
 			}
 			return string(resp.Body), nil
 		}
@@ -168,10 +164,10 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 			TopK:             topK,
 		})
 		if err != nil {
-			return nil, categoriseError(err)
+			return nil, apicommon.CategoriseError(err)
 		}
 
-		return formatWithMeta(res, format, frontmatter), nil
+		return apicommon.FormatWithMeta(res, format, frontmatter), nil
 	}
 }
 
@@ -196,7 +192,7 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 			if !ok || s == "" {
 				continue
 			}
-			if err := validateURLScheme(s); err != nil {
+			if err := apicommon.ValidateURLScheme(s); err != nil {
 				return nil, fmt.Errorf("invalid URL %q: %w", s, err)
 			}
 			items = append(items, batch.Item{URL: s})
@@ -259,75 +255,4 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 		data, _ := json.MarshalIndent(out, "", "  ")
 		return string(data), nil
 	}
-}
-
-func formatWithMeta(res *pipeline.Result, format pipeline.Format, frontmatter bool) string {
-	if format == pipeline.FormatMarkdown {
-		output := res.Output
-		if frontmatter && res.Doc != nil {
-			fm := render.GenerateFrontmatter(res.Meta, res.Doc)
-			output = fm + output
-		}
-		return render.FormatMarkdownWithMeta(res.Meta, output)
-	}
-	return res.Output
-}
-
-func categoriseError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var blockedErr *pipeline.BlockedError
-	if errors.As(err, &blockedErr) {
-		return fmt.Errorf("[blocked_private] %w", err)
-	}
-
-	var fetchErr *pipeline.FetchError
-	if errors.As(err, &fetchErr) {
-		msg := fetchErr.Unwrap().Error()
-		if strings.Contains(msg, "too_large") {
-			return fmt.Errorf("[too_large] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 4") {
-			if fetchErr.Recovery != nil {
-				base := fmt.Sprintf("[http_4xx] %%v (nearest reachable ancestor: %s [%d])", fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
-				if len(fetchErr.Recovery.Candidates) > 0 {
-					candURLs := make([]string, 0, len(fetchErr.Recovery.Candidates))
-					for _, cand := range fetchErr.Recovery.Candidates {
-						candURLs = append(candURLs, cand.URL)
-					}
-					base += fmt.Sprintf("; candidates: %s", strings.Join(candURLs, ", "))
-				}
-				return fmt.Errorf(base, err)
-			}
-			return fmt.Errorf("[http_4xx] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 5") {
-			return fmt.Errorf("[http_5xx] %w", err)
-		}
-	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return fmt.Errorf("[dns] %w", err)
-	}
-
-	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("[timeout] %w", err)
-	}
-
-	return err
-}
-
-func validateURLScheme(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL")
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return fmt.Errorf("unsupported scheme %q: only http and https are allowed", u.Scheme)
-	}
-	return nil
 }

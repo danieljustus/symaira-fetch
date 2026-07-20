@@ -12,17 +12,16 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/danieljustus/symaira-fetch/internal/apicommon"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
-	"github.com/danieljustus/symaira-fetch/internal/render"
 )
 
 const (
@@ -176,7 +175,7 @@ func (s *Server) HandleFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateURLScheme(req.URL); err != nil {
+	if err := apicommon.ValidateURLScheme(req.URL); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		resp, _ := json.Marshal(fetchResponse{OK: false, Error: err.Error()})
@@ -188,7 +187,7 @@ func (s *Server) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	if err := fetch.CheckSSRF(req.URL); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		resp, _ := json.Marshal(fetchResponse{OK: false, Error: categoriseError(err).Error()})
+		resp, _ := json.Marshal(fetchResponse{OK: false, Error: apicommon.CategoriseError(err).Error()})
 		w.Write(resp)
 		return
 	}
@@ -267,12 +266,12 @@ func (s *Server) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(errorToStatus(err))
-		resp, _ := json.Marshal(fetchResponse{OK: false, Error: categoriseError(err).Error()})
+		resp, _ := json.Marshal(fetchResponse{OK: false, Error: apicommon.CategoriseError(err).Error()})
 		w.Write(resp)
 		return
 	}
 
-	content := formatWithMeta(res, format, req.Frontmatter)
+	content := apicommon.FormatWithMeta(res, format, req.Frontmatter)
 	meta := &responseMeta{
 		Title:      res.Meta.Title,
 		URL:        req.URL,
@@ -296,7 +295,7 @@ func (s *Server) handleRawFetch(w http.ResponseWriter, ctx context.Context, rawU
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(errorToStatus(err))
-		resp, _ := json.Marshal(fetchResponse{OK: false, Error: categoriseError(err).Error()})
+		resp, _ := json.Marshal(fetchResponse{OK: false, Error: apicommon.CategoriseError(err).Error()})
 		w.Write(resp)
 		return
 	}
@@ -347,67 +346,6 @@ func isLocalhost(addr string) bool {
 	return ip.IsLoopback()
 }
 
-// validateURLScheme rejects non-http(s) URLs.
-func validateURLScheme(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL")
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return fmt.Errorf("unsupported scheme %q: only http and https are allowed", u.Scheme)
-	}
-	return nil
-}
-
-// categoriseError mirrors mcp/tools.go categoriseError for error tagging.
-func categoriseError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var blockedErr *pipeline.BlockedError
-	if errors.As(err, &blockedErr) {
-		return fmt.Errorf("[blocked_private] %w", err)
-	}
-
-	var fetchErr *pipeline.FetchError
-	if errors.As(err, &fetchErr) {
-		msg := fetchErr.Unwrap().Error()
-		if strings.Contains(msg, "too_large") {
-			return fmt.Errorf("[too_large] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 4") {
-			if fetchErr.Recovery != nil {
-				base := fmt.Sprintf("[http_4xx] %%v (nearest reachable ancestor: %s [%d])", fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
-				if len(fetchErr.Recovery.Candidates) > 0 {
-					candURLs := make([]string, 0, len(fetchErr.Recovery.Candidates))
-					for _, cand := range fetchErr.Recovery.Candidates {
-						candURLs = append(candURLs, cand.URL)
-					}
-					base += fmt.Sprintf("; candidates: %s", strings.Join(candURLs, ", "))
-				}
-				return fmt.Errorf(base, err)
-			}
-			return fmt.Errorf("[http_4xx] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 5") {
-			return fmt.Errorf("[http_5xx] %w", err)
-		}
-	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return fmt.Errorf("[dns] %w", err)
-	}
-
-	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("[timeout] %w", err)
-	}
-
-	return err
-}
-
 // errorToStatus maps pipeline errors to HTTP status codes.
 func errorToStatus(err error) int {
 	var blockedErr *pipeline.BlockedError
@@ -418,29 +356,10 @@ func errorToStatus(err error) int {
 		return http.StatusGatewayTimeout
 	}
 	var fetchErr *pipeline.FetchError
-	if errors.As(err, &fetchErr) {
-		msg := fetchErr.Unwrap().Error()
-		if strings.Contains(msg, "HTTP 4") {
-			return http.StatusBadGateway
-		}
-		if strings.Contains(msg, "HTTP 5") {
-			return http.StatusBadGateway
-		}
+	if errors.As(err, &fetchErr) && fetchErr.StatusCode >= 400 {
+		return http.StatusBadGateway
 	}
 	return http.StatusInternalServerError
-}
-
-// formatWithMeta formats the pipeline result, mirroring mcp/tools.go formatWithMeta.
-func formatWithMeta(res *pipeline.Result, format pipeline.Format, frontmatter bool) string {
-	if format == pipeline.FormatMarkdown {
-		output := res.Output
-		if frontmatter && res.Doc != nil {
-			fm := render.GenerateFrontmatter(res.Meta, res.Doc)
-			output = fm + output
-		}
-		return render.FormatMarkdownWithMeta(res.Meta, output)
-	}
-	return res.Output
 }
 
 // tokenAuthStatus returns a description for logging.
