@@ -148,6 +148,67 @@ func TestStripWaybackToolbar_NoToolbar(t *testing.T) {
 	}
 }
 
+func TestRemoveElementByClass(t *testing.T) {
+	tests := []struct {
+		name     string
+		html     string
+		class    string
+		wantHTML string
+	}{
+		{
+			name:     "class not present",
+			html:     "<div>no class here</div>",
+			class:    "target",
+			wantHTML: "<div>no class here</div>",
+		},
+		{
+			name:     "class present, valid tag, successfully removed",
+			html:     `<html><body><div class="target">to be removed</div><span>keep me</span></body></html>`,
+			class:    "target",
+			wantHTML: `<html><body><span>keep me</span></body></html>`,
+		},
+		{
+			name:     "class present but no closing tag",
+			html:     `<div class="target">no closing tag`,
+			class:    "target",
+			wantHTML: `<div class="target">no closing tag`,
+		},
+		{
+			name:     "class present, closing tag found but no trailing >",
+			html:     `<div class="target">no trailing bracket</div`,
+			class:    "target",
+			wantHTML: `</div`,
+		},
+		{
+			name:     "class present at index 0",
+			html:     `<div class="target">start</div>`,
+			class:    "target",
+			wantHTML: ``,
+		},
+		{
+			name:     "class present with trailing newline",
+			html:     "<div class=\"target\">with newline</div>\n<p>next</p>",
+			class:    "target",
+			wantHTML: "<p>next</p>",
+		},
+		{
+			name:     "case insensitive class name",
+			html:     `<div class="TARGET">case test</div>`,
+			class:    "target",
+			wantHTML: ``,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := removeElementByClass(tt.html, tt.class)
+			if got != tt.wantHTML {
+				t.Errorf("got %q, want %q", got, tt.wantHTML)
+			}
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(substr) > 0 && (len(s) >= len(substr)) && (s == substr || len(s) > 0 && containsHelper(s, substr))
 }

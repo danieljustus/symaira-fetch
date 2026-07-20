@@ -144,3 +144,34 @@ func TestErrorToStatus_Nil(t *testing.T) {
 		t.Errorf("expected 500 for nil error, got %d", errorToStatus(nil))
 	}
 }
+
+func TestTokenAuthStatus(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+		addr  string
+		want  string
+	}{
+		{
+			name:  "empty token",
+			token: "",
+			addr:  "127.0.0.1:8080",
+			want:  "none (localhost only)",
+		},
+		{
+			name:  "non-empty token",
+			token: "my-secret-token",
+			addr:  "127.0.0.1:8080",
+			want:  "bearer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tokenAuthStatus(tt.token, tt.addr)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
