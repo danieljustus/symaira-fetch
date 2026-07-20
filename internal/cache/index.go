@@ -43,32 +43,35 @@ func (im *indexManager) indexPath() string {
 	return filepath.Join(im.dir, indexFileName)
 }
 
-func (im *indexManager) load() error {
+// load reads the persisted index from disk. It returns valid=true only when
+// an index file existed and parsed successfully — callers use this to skip
+// a full cache-directory rescan when the on-disk index can be trusted as-is.
+func (im *indexManager) load() (valid bool, err error) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
 	if im.loaded {
-		return nil
+		return false, nil
 	}
 
 	data, err := os.ReadFile(im.indexPath())
 	if err != nil {
+		im.loaded = true
 		if os.IsNotExist(err) {
-			im.loaded = true
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 
 	var idx cacheIndex
 	if err := json.Unmarshal(data, &idx); err != nil {
 		im.loaded = true
-		return nil
+		return false, nil
 	}
 
 	im.index = idx
 	im.loaded = true
-	return nil
+	return true, nil
 }
 
 func (im *indexManager) save() error {

@@ -175,8 +175,11 @@ func TestReconcileIndex_StaleIndexPruned(t *testing.T) {
 	c1.indexMgr.addEntry(phantomKey, 9999, time.Now())
 	c1.indexMgr.save()
 
-	// Start a new process. reconcileIndex should remove the phantom.
+	// A cleanly-parseable index is trusted as-is at startup (New skips the
+	// full rescan in that case — see cache.go). Reconciliation of a
+	// stale-but-valid index is an explicit operation.
 	c2 := New(dir, 15*time.Minute, 0)
+	c2.reconcileIndex()
 
 	totalSize := c2.indexMgr.getTotalSize()
 	entries := c2.indexMgr.getEntries()
@@ -198,6 +201,46 @@ func TestReconcileIndex_StaleIndexPruned(t *testing.T) {
 
 	if totalSize <= 0 {
 		t.Errorf("expected positive total size, got %d", totalSize)
+	}
+}
+
+// TestNew_ValidIndexSkipsFullRescan verifies that a cleanly-parseable
+// on-disk index is trusted as-is at startup: files present on disk but not
+// recorded in the index are not picked up, because New does not walk the
+// cache directory in that case.
+func TestNew_ValidIndexSkipsFullRescan(t *testing.T) {
+	dir := t.TempDir()
+
+	c1 := New(dir, 15*time.Minute, 0)
+	c1.Put("https://example.com/tracked", "chrome", "markdown", "", "",
+		[]byte("tracked body"), Meta{StatusCode: 200})
+
+	// Write an extra body+meta pair directly to disk, bypassing Put, so it
+	// exists on disk but is absent from the persisted index.
+	untrackedKey := c1.key("https://example.com/untracked", "chrome", "markdown", "", "")
+	shardDir := filepath.Join(dir, untrackedKey[:2])
+	if err := os.MkdirAll(shardDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c1.bodyPath(untrackedKey), []byte("untracked body"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	metaData, _ := json.Marshal(Meta{StatusCode: 200, StoredAt: time.Now(), TTL: 15 * time.Minute})
+	if err := os.WriteFile(c1.metaPath(untrackedKey), metaData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// New should trust the valid on-disk index and skip the rescan that
+	// would otherwise discover the untracked entry.
+	c2 := New(dir, 15*time.Minute, 0)
+	entries := c2.indexMgr.getEntries()
+	if len(entries) != 1 {
+		t.Errorf("expected index to remain at 1 entry (no rescan), got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Key == untrackedKey {
+			t.Error("untracked entry should not appear without an explicit reconcile")
+		}
 	}
 }
 
@@ -390,8 +433,12 @@ func TestIndexManager_LoadCorruptIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := im.load(); err != nil {
+	valid, err := im.load()
+	if err != nil {
 		t.Errorf("expected load to swallow corrupt index, got err=%v", err)
+	}
+	if valid {
+		t.Error("expected corrupt index to be reported as invalid")
 	}
 	if !im.loaded {
 		t.Error("expected index manager to be marked loaded after corrupt index")
@@ -473,7 +520,7 @@ func TestIndexManager_Load_PermissionDenied(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(im.indexPath(), 0600) })
 
-	err := im.load()
+	_, err := im.load()
 	if err == nil {
 		t.Error("expected error when reading index file with no permissions")
 	}
