@@ -356,14 +356,8 @@ func errorToStatus(err error) int {
 		return http.StatusGatewayTimeout
 	}
 	var fetchErr *pipeline.FetchError
-	if errors.As(err, &fetchErr) {
-		msg := fetchErr.Unwrap().Error()
-		if strings.Contains(msg, "HTTP 4") {
-			return http.StatusBadGateway
-		}
-		if strings.Contains(msg, "HTTP 5") {
-			return http.StatusBadGateway
-		}
+	if errors.As(err, &fetchErr) && fetchErr.StatusCode >= 400 {
+		return http.StatusBadGateway
 	}
 	return http.StatusInternalServerError
 }

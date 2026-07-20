@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 	"github.com/danieljustus/symaira-fetch/internal/render"
 )
@@ -27,13 +28,15 @@ func CategoriseError(err error) error {
 		return fmt.Errorf("[blocked_private] %w", err)
 	}
 
+	var tooLargeErr *fetch.ErrTooLarge
+	if errors.As(err, &tooLargeErr) {
+		return fmt.Errorf("[too_large] %w", err)
+	}
+
 	var fetchErr *pipeline.FetchError
 	if errors.As(err, &fetchErr) {
-		msg := fetchErr.Unwrap().Error()
-		if strings.Contains(msg, "too_large") {
-			return fmt.Errorf("[too_large] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 4") {
+		switch {
+		case fetchErr.StatusCode >= 400 && fetchErr.StatusCode < 500:
 			if fetchErr.Recovery != nil {
 				base := fmt.Sprintf("[http_4xx] %%v (nearest reachable ancestor: %s [%d])", fetchErr.Recovery.NearestAncestor, fetchErr.Recovery.AncestorStatus)
 				if len(fetchErr.Recovery.Candidates) > 0 {
@@ -46,8 +49,7 @@ func CategoriseError(err error) error {
 				return fmt.Errorf(base, err)
 			}
 			return fmt.Errorf("[http_4xx] %w", err)
-		}
-		if strings.Contains(msg, "HTTP 5") {
+		case fetchErr.StatusCode >= 500:
 			return fmt.Errorf("[http_5xx] %w", err)
 		}
 	}

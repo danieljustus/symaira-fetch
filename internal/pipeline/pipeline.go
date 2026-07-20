@@ -231,7 +231,7 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 	}
 
 	if resp.StatusCode >= 400 {
-		fe := &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode)}
+		fe := &FetchError{URL: rawURL, Err: fmt.Errorf("HTTP %d", resp.StatusCode), StatusCode: resp.StatusCode}
 
 		// Try Wayback fallback for 404/410 before ancestor probing.
 		if o.WaybackFallback && !isWaybackURL(rawURL) && (resp.StatusCode == 404 || resp.StatusCode == 410) {

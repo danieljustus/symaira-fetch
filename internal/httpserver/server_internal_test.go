@@ -80,12 +80,12 @@ func TestErrorToStatus(t *testing.T) {
 		},
 		{
 			name: "http_4xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 404")},
+			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 404"), StatusCode: 404},
 			want: http.StatusBadGateway,
 		},
 		{
 			name: "http_5xx",
-			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 500")},
+			err:  &pipeline.FetchError{URL: "https://example.com", Err: errors.New("HTTP 500"), StatusCode: 500},
 			want: http.StatusBadGateway,
 		},
 		{

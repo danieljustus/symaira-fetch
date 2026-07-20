@@ -41,7 +41,7 @@ func TestCategoriseError_TooLarge(t *testing.T) {
 }
 
 func TestCategoriseError_HTTP4xx(t *testing.T) {
-	err := &pipeline.FetchError{URL: "http://example.com", Err: errors.New("HTTP 404")}
+	err := &pipeline.FetchError{URL: "http://example.com", Err: errors.New("HTTP 404"), StatusCode: 404}
 	got := CategoriseError(err)
 
 	if !strings.Contains(got.Error(), "[http_4xx]") {
@@ -51,8 +51,9 @@ func TestCategoriseError_HTTP4xx(t *testing.T) {
 
 func TestCategoriseError_HTTP4xxWithRecovery(t *testing.T) {
 	err := &pipeline.FetchError{
-		URL: "https://example.com/missing",
-		Err: errors.New("HTTP 404 Not Found"),
+		URL:        "https://example.com/missing",
+		Err:        errors.New("HTTP 404 Not Found"),
+		StatusCode: 404,
 		Recovery: &pipeline.RecoveryHints{
 			NearestAncestor: "https://example.com/",
 			AncestorStatus:  200,
@@ -73,7 +74,7 @@ func TestCategoriseError_HTTP4xxWithRecovery(t *testing.T) {
 }
 
 func TestCategoriseError_HTTP5xx(t *testing.T) {
-	err := &pipeline.FetchError{URL: "http://example.com", Err: errors.New("HTTP 503")}
+	err := &pipeline.FetchError{URL: "http://example.com", Err: errors.New("HTTP 503"), StatusCode: 503}
 	got := CategoriseError(err)
 
 	if !strings.Contains(got.Error(), "[http_5xx]") {

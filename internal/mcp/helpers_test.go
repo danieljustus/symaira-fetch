@@ -179,7 +179,7 @@ func TestMakeFetchURLHandler_RawModeSuccess(t *testing.T) {
 func TestMakeFetchURLHandler_RawModeError(t *testing.T) {
 	srv := &mockClient{
 		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
-			return nil, &pipeline.FetchError{URL: req.URL, Err: fmt.Errorf("HTTP 500")}
+			return nil, &pipeline.FetchError{URL: req.URL, Err: fmt.Errorf("HTTP 500"), StatusCode: 500}
 		},
 	}
 	handler := makeFetchURLHandler(srv, pipeline.StaticEngine{})
