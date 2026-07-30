@@ -234,7 +234,7 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 
 	root.Flags().StringVarP(&flagFormat, "format", "f", "markdown", "Output format: markdown, json, text, html")
 	root.Flags().BoolVar(&flagRaw, "raw", false, "Return raw decoded response body without semantic processing")
-	root.Flags().StringVar(&flagProfile, "profile", "chrome", "Browser profile: chrome, firefox, honest")
+	root.Flags().StringVar(&flagProfile, "profile", "chrome", "Browser profile: chrome, firefox, opera, safari, edge, ios, honest, random")
 	root.Flags().StringVar(&flagProxy, "proxy", "", "Proxy URL (http/https/socks5)")
 	root.Flags().StringVar(&flagTimeout, "timeout", "30s", "Request timeout (e.g. 30s, 1m)")
 	root.Flags().IntVar(&flagMaxChars, "max-chars", 20000, "Maximum characters in semantic output")
@@ -478,7 +478,7 @@ Use --http to start an HTTP REST server instead (POST /fetch endpoint with beare
 		},
 	}
 
-	cmd.Flags().StringVar(&flagProfile, "profile", "chrome", "Browser profile: chrome, firefox, honest")
+	cmd.Flags().StringVar(&flagProfile, "profile", "chrome", "Browser profile: chrome, firefox, opera, safari, edge, ios, honest, random")
 	cmd.Flags().StringVar(&flagProxy, "proxy", "", "Proxy URL")
 	cmd.Flags().BoolVar(&flagHTTP, "http", false, "Start HTTP REST server instead of MCP stdio server")
 	cmd.Flags().StringVar(&flagAddr, "addr", ":8787", "HTTP listen address (host:port)")
