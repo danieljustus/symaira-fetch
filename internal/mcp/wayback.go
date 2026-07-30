@@ -49,16 +49,24 @@ func makeWaybackSnapshotsHandler() func(ctx context.Context, input json.RawMessa
 
 		query := archive.CDXQuery{URL: rawURL}
 
-		if from, ok := args["from"].(string); ok {
+		if from, ok, err := stringArg(args, "from"); err != nil {
+			return nil, err
+		} else if ok {
 			query.From = from
 		}
-		if to, ok := args["to"].(string); ok {
+		if to, ok, err := stringArg(args, "to"); err != nil {
+			return nil, err
+		} else if ok {
 			query.To = to
 		}
-		if v, ok := args["limit"].(float64); ok && v > 0 {
-			query.Limit = int(v)
+		if v, ok, err := intArg(args, "limit"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			query.Limit = v
 		}
-		if mt, ok := args["match_type"].(string); ok {
+		if mt, ok, err := stringArg(args, "match_type"); err != nil {
+			return nil, err
+		} else if ok {
 			query.MatchType = mt
 		}
 

@@ -85,7 +85,9 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		}
 
 		format := pipeline.FormatMarkdown
-		if f, ok := args["format"].(string); ok && f != "" {
+		if f, ok, err := stringArg(args, "format"); err != nil {
+			return nil, err
+		} else if ok && f != "" {
 			parsed, err := pipeline.ParseFormat(f)
 			if err != nil {
 				return nil, fmt.Errorf("invalid format: %w", err)
@@ -94,42 +96,77 @@ func makeFetchURLHandler(client fetch.Client, eng pipeline.Engine) func(ctx cont
 		}
 
 		maxChars := 20000
-		if v, ok := args["max_chars"].(float64); ok && v > 0 {
-			maxChars = int(v)
+		if v, ok, err := intArg(args, "max_chars"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			maxChars = v
 		}
 		if maxChars > maxCharsLimit {
 			slog.Debug("max_chars capped", "requested", maxChars, "limit", maxCharsLimit)
 			maxChars = maxCharsLimit
 		}
 
-		includeLinks, _ := args["include_links"].(bool)
-		raw, _ := args["raw"].(bool)
-		frontmatter, _ := args["frontmatter"].(bool)
-		storeFullText, _ := args["store_full_text"].(bool)
+		includeLinks, _, err := boolArg(args, "include_links")
+		if err != nil {
+			return nil, err
+		}
+		raw, _, err := boolArg(args, "raw")
+		if err != nil {
+			return nil, err
+		}
+		frontmatter, _, err := boolArg(args, "frontmatter")
+		if err != nil {
+			return nil, err
+		}
+		storeFullText, _, err := boolArg(args, "store_full_text")
+		if err != nil {
+			return nil, err
+		}
 
-		cssSelector, _ := args["css_selector"].(string)
-		schemaPath, _ := args["schema_path"].(string)
+		cssSelector, _, err := stringArg(args, "css_selector")
+		if err != nil {
+			return nil, err
+		}
+		schemaPath, _, err := stringArg(args, "schema_path")
+		if err != nil {
+			return nil, err
+		}
 
-		waybackFallback, _ := args["wayback_fallback"].(bool)
-		waybackTimestamp, _ := args["wayback_timestamp"].(string)
+		waybackFallback, _, err := boolArg(args, "wayback_fallback")
+		if err != nil {
+			return nil, err
+		}
+		waybackTimestamp, _, err := stringArg(args, "wayback_timestamp")
+		if err != nil {
+			return nil, err
+		}
 		if waybackTimestamp != "" {
 			waybackFallback = true
 		}
 
-		query, _ := args["query"].(string)
+		query, _, err := stringArg(args, "query")
+		if err != nil {
+			return nil, err
+		}
 		topK := 0
-		if v, ok := args["top_k"].(float64); ok && v > 0 {
-			topK = int(v)
+		if v, ok, err := intArg(args, "top_k"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			topK = v
 		}
 
 		charLimit := pipeline.DefaultCharLimit
-		if v, ok := args["char_limit"].(float64); ok && v > 0 {
-			charLimit = int(v)
+		if v, ok, err := intArg(args, "char_limit"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			charLimit = v
 		}
 
 		timeoutSec := 30
-		if v, ok := args["timeout_seconds"].(float64); ok && v > 0 {
-			timeoutSec = int(v)
+		if v, ok, err := intArg(args, "timeout_seconds"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			timeoutSec = v
 		}
 		if timeoutSec > maxTimeoutSec {
 			slog.Debug("timeout_seconds capped", "requested", timeoutSec, "limit", maxTimeoutSec)
@@ -199,7 +236,9 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 		}
 
 		format := pipeline.FormatMarkdown
-		if f, ok := args["format"].(string); ok && f != "" {
+		if f, ok, err := stringArg(args, "format"); err != nil {
+			return nil, err
+		} else if ok && f != "" {
 			parsed, err := pipeline.ParseFormat(f)
 			if err != nil {
 				return nil, fmt.Errorf("invalid format: %w", err)
@@ -208,8 +247,10 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 		}
 
 		maxChars := 20000
-		if v, ok := args["max_chars"].(float64); ok && v > 0 {
-			maxChars = int(v)
+		if v, ok, err := intArg(args, "max_chars"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			maxChars = v
 		}
 		if maxChars > maxCharsLimit {
 			slog.Debug("max_chars capped", "requested", maxChars, "limit", maxCharsLimit)
@@ -217,18 +258,24 @@ func makeFetchBatchHandler(client fetch.Client, eng pipeline.Engine, adaptivePoo
 		}
 
 		concurrency := 4
-		if v, ok := args["concurrency"].(float64); ok && v > 0 {
-			c := int(v)
-			if c > 8 {
-				c = 8
+		if v, ok, err := intArg(args, "concurrency"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			if v > 8 {
+				v = 8
 			}
-			concurrency = c
+			concurrency = v
 		}
 
-		storeFullText, _ := args["store_full_text"].(bool)
+		storeFullText, _, err := boolArg(args, "store_full_text")
+		if err != nil {
+			return nil, err
+		}
 		charLimit := pipeline.DefaultCharLimit
-		if v, ok := args["char_limit"].(float64); ok && v > 0 {
-			charLimit = int(v)
+		if v, ok, err := intArg(args, "char_limit"); err != nil {
+			return nil, err
+		} else if ok && v > 0 {
+			charLimit = v
 		}
 
 		pool := batch.Pool{Workers: concurrency, PerHost: 2, Adaptive: true, AdaptivePool: adaptivePool}
