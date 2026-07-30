@@ -33,3 +33,4 @@ Guidelines and commands for developers and AI agents working on this codebase.
 - **Zero-CGO**: Maintain CGO-free compilations. `CGO_ENABLED=0` always.
 - **Standard Library first**: Prefer stdlib over external dependencies where possible.
 - **Logging**: Use `log/slog` routed to `os.Stderr`. Never use `fmt.Print*` to stdout outside the CLI layer.
+- **Agent Skill**: For AI agents consuming symfetch as a tool, see [`skills/symfetch/SKILL.md`](skills/symfetch/SKILL.md) — covers CLI flags, MCP tool parameters, failure-mode recovery, and surface selection guidance.
