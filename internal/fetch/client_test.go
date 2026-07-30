@@ -12,7 +12,12 @@ func TestParseProfile(t *testing.T) {
 	}{
 		{"chrome", ProfileChrome},
 		{"firefox", ProfileFirefox},
+		{"opera", ProfileOpera},
+		{"safari", ProfileSafari},
+		{"edge", ProfileEdge},
+		{"ios", ProfileIos},
 		{"honest", ProfileHonest},
+		{"random", ProfileRandom},
 		{"", ProfileChrome},
 		{"unknown", ProfileChrome},
 		{"CHROME", ProfileChrome},
@@ -26,6 +31,24 @@ func TestParseProfile(t *testing.T) {
 				t.Errorf("ParseProfile(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRandomProfile(t *testing.T) {
+	// Verify randomProfile always returns a verified preset.
+	seen := make(map[Profile]bool)
+	for i := 0; i < 50; i++ {
+		p := randomProfile()
+		if !isVerifiedPreset(p) {
+			t.Errorf("randomProfile returned non-verified preset: %q", p)
+		}
+		seen[p] = true
+	}
+
+	// With 50 iterations across 6 presets, we should see more than one
+	// distinct value (p(the same) = (1/6)^49 ≈ 10^-38).
+	if len(seen) < 2 {
+		t.Errorf("randomProfile produced only one distinct preset after 50 calls: %v", seen)
 	}
 }
 

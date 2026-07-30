@@ -3,6 +3,7 @@ package fetch
 import (
 	"context"
 	"log/slog"
+	"math/rand"
 	"time"
 )
 
@@ -12,22 +13,64 @@ type Profile string
 const (
 	ProfileChrome  Profile = "chrome"
 	ProfileFirefox Profile = "firefox"
+	ProfileOpera   Profile = "opera"
+	ProfileSafari  Profile = "safari"
+	ProfileEdge    Profile = "edge"
+	ProfileIos     Profile = "ios"
 	ProfileHonest  Profile = "honest"
+	ProfileRandom  Profile = "random"
 )
+
+// verifiedPresets lists all azuretls presets that have been verified to work
+// against real fetch targets. Missing presets are excluded with reasons
+// recorded in the issue tracking.
+var verifiedPresets = []Profile{
+	ProfileChrome,
+	ProfileFirefox,
+	ProfileOpera,
+	ProfileSafari,
+	ProfileEdge,
+	ProfileIos,
+}
+
+// isVerifiedPreset returns true if p is a verified azuretls preset.
+func isVerifiedPreset(p Profile) bool {
+	for _, vp := range verifiedPresets {
+		if p == vp {
+			return true
+		}
+	}
+	return false
+}
 
 // ParseProfile parses a string into a Profile. Returns ProfileChrome as default.
 func ParseProfile(s string) Profile {
 	switch s {
 	case "firefox":
 		return ProfileFirefox
+	case "opera":
+		return ProfileOpera
+	case "safari":
+		return ProfileSafari
+	case "edge":
+		return ProfileEdge
+	case "ios":
+		return ProfileIos
 	case "honest":
 		return ProfileHonest
+	case "random":
+		return ProfileRandom
 	default:
 		if s != "" && s != "chrome" {
 			slog.Warn("unknown profile, defaulting to chrome", "profile", s)
 		}
 		return ProfileChrome
 	}
+}
+
+// randomProfile selects a random verified azuretls preset.
+func randomProfile() Profile {
+	return verifiedPresets[rand.Intn(len(verifiedPresets))]
 }
 
 // Request describes a single HTTP fetch operation.

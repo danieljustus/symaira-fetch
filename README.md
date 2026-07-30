@@ -205,7 +205,7 @@ Explicit CLI flags (`--no-cache`, `--cache-ttl`, `--concurrency`, etc.) take pre
 |---------------------|--------------|-------------|
 | `SYMFETCH_CACHE_DIR` | `cache.dir` | Override cache directory (default: `~/.cache/symfetch`) |
 | `SYMFETCH_CACHE_MAX_SIZE_MB` | `cache.max_size_mb` | Maximum cache size in MB (default: 100) |
-| `SYMFETCH_HTTP_PROFILE` | `http.profile` | Browser profile: chrome, firefox, honest |
+| `SYMFETCH_HTTP_PROFILE` | `http.profile` | Browser profile: chrome, firefox, opera, safari, edge, ios, honest, random |
 | `SYMFETCH_HTTP_TIMEOUT_SECONDS` | `http.timeout_seconds` | Request timeout in seconds |
 | `SYMFETCH_SECURITY_ALLOW_PRIVATE` | `security.allow_private` | Allow fetching private/loopback addresses |
 
@@ -217,6 +217,12 @@ Symaira Fetch impersonates real browser TLS and HTTP/2 fingerprints to bypass ba
 |---------|--------|-------|
 | Chrome | Chrome 135 | TLS/HTTP2 JA4 fingerprint, order pseudo-headers |
 | Firefox | Firefox | TLS/HTTP2 fingerprint pattern (no specific version pinned) |
+| Opera | Opera | TLS/HTTP2 fingerprint via azuretls preset |
+| Safari | Safari | TLS/HTTP2 fingerprint via azuretls preset |
+| Edge | Edge | TLS/HTTP2 fingerprint via azuretls preset |
+| iOS | iOS (Safari) | TLS/HTTP2 fingerprint via azuretls preset |
+| Honest | — | Plain `net/http` client, no impersonation |
+| Random | varied | Randomly selects among verified presets per session |
 
 These fingerprints are maintained by the [azuretls](https://github.com/Noooste/azuretls-client) library (v1.13.2). The target Chrome version is updated quarterly as Chrome releases drift from the pinned fingerprint.
 

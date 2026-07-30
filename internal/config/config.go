@@ -68,7 +68,7 @@ func DefaultConfigTOML() string {
 # See https://github.com/danieljustus/symaira-fetch
 
 [http]
-# Browser impersonation profile: chrome, firefox, honest
+# Browser impersonation profile: chrome, firefox, opera, safari, edge, ios, honest, random
 profile = "chrome"
 # Default output format: markdown, json, text
 default_format = "markdown"

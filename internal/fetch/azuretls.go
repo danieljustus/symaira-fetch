@@ -22,15 +22,36 @@ type azureClient struct {
 	proxyMu       sync.Mutex
 }
 
-func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
-	var browser string
+// azuretlsBrowser maps a Profile to an azuretls browser constant.
+// For ProfileRandom, a verified preset is randomly selected.
+func azuretlsBrowser(p Profile) string {
+	// Resolve random once — the caller stores the resolved profile.
 	switch p {
 	case ProfileFirefox:
-		browser = azuretls.Firefox
+		return azuretls.Firefox
+	case ProfileOpera:
+		return azuretls.Opera
+	case ProfileSafari:
+		return azuretls.Safari
+	case ProfileEdge:
+		return azuretls.Edge
+	case ProfileIos:
+		return azuretls.Ios
+	case ProfileChrome:
+		return azuretls.Chrome
 	default:
-		browser = azuretls.Chrome
+		return azuretls.Chrome
+	}
+}
+
+func newAzureClient(p Profile, o *clientOptions) (*azureClient, error) {
+	// Resolve random at construction time so the same client uses a
+	// consistent preset for its lifetime ("per session").
+	if p == ProfileRandom {
+		p = randomProfile()
 	}
 
+	browser := azuretlsBrowser(p)
 	sess := azuretls.NewSession()
 	sess.Browser = browser
 
@@ -137,13 +158,7 @@ func (c *azureClient) getProxySession(proxyURL string) *azuretls.Session {
 		}
 	}
 
-	var browser string
-	switch c.profile {
-	case ProfileFirefox:
-		browser = azuretls.Firefox
-	default:
-		browser = azuretls.Chrome
-	}
+	browser := azuretlsBrowser(c.profile)
 	sess := azuretls.NewSession()
 	sess.Browser = browser
 	if err := sess.SetProxy(proxyURL); err != nil {
