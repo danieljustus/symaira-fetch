@@ -591,11 +591,8 @@ func TestMakeWaybackHandler_StringifiedLimit(t *testing.T) {
 	})
 	_, err := handler(context.Background(), input)
 	// May fail because no CDX server is configured, but should NOT fail with ArgError
-	if err != nil {
-		if _, ok := err.(*ArgError); ok {
-			t.Fatalf("unexpected ArgError for stringified limit: %v", err)
-		}
-		// Other errors (like network) are fine for this mock-free test
+	if _, ok := err.(*ArgError); ok {
+		t.Fatalf("unexpected ArgError for stringified limit: %v", err)
 	}
 }
 
