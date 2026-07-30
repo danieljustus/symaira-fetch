@@ -27,6 +27,10 @@ This repository is the public Apache-2.0 licensed Symaira Fetch self-hosted foun
 - The Chrome/Firefox impersonation profiles target specific Chrome/Firefox versions. When the pinned version drifts significantly from current releases (typically every quarter), update the preset in `internal/fetch/azuretls.go` and document the target Chrome version.
 - v0.1 passes TLS/HTTP2-layer fingerprint checks but **does not pass JavaScript challenges** (Cloudflare Managed Challenge, Turnstile). JS execution is a future milestone via the `pipeline.Engine` interface.
 
+## Agent Skill for Consumer Use
+
+For AI agents that *use* symfetch (as opposed to developing it), a consumer-facing skill is available at [`skills/symfetch/SKILL.md`](skills/symfetch/SKILL.md). It documents all three surfaces (CLI, MCP stdio, HTTP POST /fetch), agent-relevant flags, MCP tool parameters, and failure-mode recovery.
+
 ## Dependency Maintenance
 
 - The primary impersonation client is `github.com/Noooste/azuretls-client` (MIT, pure Go).
