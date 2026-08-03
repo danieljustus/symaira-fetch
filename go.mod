@@ -7,7 +7,7 @@ require (
 	github.com/Noooste/azuretls-client v1.13.2
 	github.com/Noooste/fhttp v1.0.15
 	github.com/PuerkitoBio/goquery v1.12.0
-	github.com/danieljustus/symaira-corekit v0.6.0
+	github.com/danieljustus/symaira-corekit v0.8.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/net v0.57.0
 	golang.org/x/sync v0.22.0
