@@ -535,6 +535,85 @@ func TestResolveFetchOptions_FlagsOverrideCustomConfig(t *testing.T) {
 	}
 }
 
+func TestResolveMCPOptions(t *testing.T) {
+	customCfg := config.Defaults()
+	customCfg.HTTP.Profile = "firefox"
+	customCfg.HTTP.Proxy = "socks5://127.0.0.1:9050"
+	customCfg.HTTP.TimeoutSeconds = 60
+	customCfg.HTTP.MaxBodyMB = 25
+
+	tests := []struct {
+		name        string
+		args        []string
+		cfg         *config.Config
+		wantProfile string
+		wantProxy   string
+		wantTimeout int
+		wantMaxBody int
+	}{
+		{
+			name:        "unchanged flags use config values",
+			args:        []string{},
+			cfg:         customCfg,
+			wantProfile: "firefox",
+			wantProxy:   "socks5://127.0.0.1:9050",
+			wantTimeout: 60,
+			wantMaxBody: 25,
+		},
+		{
+			name:        "flags win over config",
+			args:        []string{"--profile", "honest", "--proxy", "http://proxy.local:8080"},
+			cfg:         customCfg,
+			wantProfile: "honest",
+			wantProxy:   "http://proxy.local:8080",
+			wantTimeout: 60,
+			wantMaxBody: 25,
+		},
+		{
+			name:        "production defaults when config is default",
+			args:        []string{},
+			cfg:         config.Defaults(),
+			wantProfile: "chrome",
+			wantProxy:   "",
+			wantTimeout: 30,
+			wantMaxBody: 10,
+		},
+		{
+			name:        "flag proxy only, profile from config",
+			args:        []string{"--proxy", "http://flag-proxy:3128"},
+			cfg:         customCfg,
+			wantProfile: "firefox",
+			wantProxy:   "http://flag-proxy:3128",
+			wantTimeout: 60,
+			wantMaxBody: 25,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newMCPCmd()
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatal(err)
+			}
+
+			profile, proxy, timeoutSec, maxBodyMB := resolveMCPOptions(cmd, tt.cfg)
+
+			if profile != tt.wantProfile {
+				t.Errorf("profile = %q, want %q", profile, tt.wantProfile)
+			}
+			if proxy != tt.wantProxy {
+				t.Errorf("proxy = %q, want %q", proxy, tt.wantProxy)
+			}
+			if timeoutSec != tt.wantTimeout {
+				t.Errorf("timeoutSec = %d, want %d", timeoutSec, tt.wantTimeout)
+			}
+			if maxBodyMB != tt.wantMaxBody {
+				t.Errorf("maxBodyMB = %d, want %d", maxBodyMB, tt.wantMaxBody)
+			}
+		})
+	}
+}
+
 // Suppress unused import warning
 var _ = cobra.Command{}
 

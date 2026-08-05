@@ -20,8 +20,12 @@ var ServerVersion = "dev"
 
 // StartServer starts the MCP server over stdio with graceful shutdown.
 // All logging goes to stderr; only JSON-RPC frames go to stdout.
-func StartServer(profile fetch.Profile, proxy string) error {
-	client, err := fetch.New(profile, fetch.WithProxy(proxy))
+func StartServer(profile fetch.Profile, proxy string, timeoutSec int, maxBodyMB int) error {
+	client, err := fetch.New(profile,
+		fetch.WithProxy(proxy),
+		fetch.WithTimeout(timeoutSec),
+		fetch.WithMaxBody(maxBodyMB),
+	)
 	if err != nil {
 		return fmt.Errorf("init fetch client: %w", err)
 	}
