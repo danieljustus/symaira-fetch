@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -88,147 +89,32 @@ in Markdown mode, or as a JSON array in --format json mode.`,
 				cfg = config.Defaults()
 			}
 
-			profile := cfg.HTTP.Profile
-			if cmd.Flags().Changed("profile") {
-				profile = flagProfile
-			}
-			proxy := cfg.HTTP.Proxy
-			if cmd.Flags().Changed("proxy") {
-				proxy = flagProxy
-			}
-			format := cfg.HTTP.DefaultFormat
-			if cmd.Flags().Changed("format") {
-				format = flagFormat
-			}
-			parsedFormat, err := pipeline.ParseFormat(format)
-			if err != nil {
-				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid format")
-			}
-			maxChars := cfg.HTTP.MaxChars
-			if cmd.Flags().Changed("max-chars") {
-				maxChars = flagMaxChars
-			}
-
-			fo, err := resolveFetchOptions(cmd, cfg)
+			ro, err := resolveRootOptions(cmd, cfg)
 			if err != nil {
 				return err
 			}
-
-			timeoutSec := cfg.HTTP.TimeoutSeconds
-			if cmd.Flags().Changed("timeout") {
-				d, err := time.ParseDuration(flagTimeout)
-				if err != nil {
-					return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid timeout")
-				}
-				timeoutSec = int(d.Seconds())
-			}
-			if timeoutSec > 120 {
-				fmt.Fprintf(os.Stderr, "warning: timeout %ds exceeds MCP server cap of 120s; MCP requests will be capped\n", timeoutSec)
-			}
-
-			extraHeaders, err := parseHeaders(flagHeaders)
-			if err != nil {
-				return exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid header")
-			}
-
-			p := fetch.ParseProfile(profile)
-			client, err := fetch.New(p,
-				fetch.WithProxy(proxy),
-				fetch.WithTimeout(timeoutSec),
-				fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
-				fetch.WithRetry(!flagNoRetry),
-			)
-			if err != nil {
-				return exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
-			}
-			defer client.Close()
-
-			eng := pipeline.StaticEngine{}
-			body := []byte(nil)
-			if flagData != "" {
-				body = []byte(flagData)
-			}
-			opts := pipeline.Options{
-				Format: parsedFormat,
-				Content: pipeline.ContentOptions{
-					MaxChars:     maxChars,
-					IncludeLinks: flagLinks,
-				},
-				Cache: pipeline.CacheOptions{
-					NoCache: fo.noCache,
-					Dir:     cfg.Cache.Dir,
-					TTL:     fo.cacheTTL,
-					MaxSize: int64(cfg.Cache.MaxSizeMB) * 1024 * 1024,
-				},
-				Profile: profile,
-				Session: flagSession,
-				Security: pipeline.SecurityOptions{
-					Robots: flagRobots,
-				},
-				Request: pipeline.RequestOptions{
-					Method:  strings.ToUpper(flagMethod),
-					Headers: extraHeaders,
-					Body:    body,
-				},
-				StoreFullText:    flagStoreFullText,
-				CharLimit:        flagCharLimit,
-				WaybackFallback:  flagWaybackFB || flagWaybackAt != "",
-				WaybackTimestamp: flagWaybackAt,
-				Query:            flagQuery,
-				TopK:             flagTopK,
-				CSSSelector:      flagSelector,
-				Frontmatter:      flagFrontmatter,
-				SchemaPath:       flagSchemaPath,
-			}
-			if flagRobots {
-				opts.Security.RobotsChecker = robots.NewChecker()
-			}
+			defer ro.client.Close()
 
 			ctx := context.Background()
-			allowPrivate := flagAllowPriv || cfg.Security.AllowPrivate
+			eng := pipeline.StaticEngine{}
 
-			opts.Security.AllowPrivate = allowPrivate
-
-			if allowPrivate {
+			if ro.opts.Security.AllowPrivate {
 				fmt.Fprintf(os.Stderr, "warning: SSRF guard disabled — fetching private/loopback addresses is permitted\n")
 			}
 
 			if flagRaw {
-				return runRaw(ctx, client, args, flagMethod, extraHeaders, flagData, allowPrivate)
+				return runRaw(ctx, os.Stdout, ro.client, args, flagMethod, ro.extraHeaders, flagData, ro.allowPrivate)
 			}
 
-			if opts.Format == pipeline.FormatJSON && len(args) > 1 {
-				return runMultiJSON(ctx, client, eng, args, opts)
+			if ro.opts.Format == pipeline.FormatJSON && len(args) > 1 {
+				return runMultiJSON(ctx, os.Stdout, ro.client, eng, args, ro.opts)
 			}
 
-			if len(args) > 1 && fo.concurrency > 1 {
-				return runBatch(ctx, client, eng, args, opts, fo.concurrency)
+			if len(args) > 1 && ro.fetchOpts.concurrency > 1 {
+				return runBatch(ctx, os.Stdout, ro.client, eng, args, ro.opts, ro.fetchOpts.concurrency)
 			}
 
-			var failCount int
-			for i, rawURL := range args {
-				if i > 0 {
-					fmt.Print("\n---\n\n")
-				}
-				res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
-					failCount++
-					continue
-				}
-				if opts.Format == pipeline.FormatMarkdown {
-					printMarkdownResult(res, flagFrontmatter)
-				} else {
-					fmt.Print(res.Output)
-					if !strings.HasSuffix(res.Output, "\n") {
-						fmt.Println()
-					}
-				}
-			}
-			if failCount > 0 {
-				return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(args)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
-			}
-			return nil
+			return runSequential(ctx, os.Stdout, ro.client, eng, args, ro.opts, flagFrontmatter)
 		},
 	}
 
@@ -303,7 +189,183 @@ func resolveFetchOptions(cmd *cobra.Command, cfg *config.Config) (fetchOptions, 
 	}, nil
 }
 
-func runRaw(ctx context.Context, client fetch.Client, urls []string, method string, headers map[string]string, data string, allowPrivate bool) error {
+// rootOptions carries every resolved value the fetch command needs to branch
+// into its output runners.
+type rootOptions struct {
+	profile      string
+	proxy        string
+	format       pipeline.Format
+	maxChars     int
+	timeoutSec   int
+	extraHeaders map[string]string
+	allowPrivate bool
+	client       fetch.Client
+	opts         pipeline.Options
+	fetchOpts    fetchOptions
+}
+
+// resolveRootOptions resolves the fetch command's config+flags into the
+// pieces its output runners need: profile/proxy/format/max-chars/timeout,
+// extra headers, the fetch client, and the assembled pipeline options.
+// Flags win over the config file, mirroring resolveMCPOptions. Warnings are
+// written to os.Stderr in the same order as the original RunE closure.
+func resolveRootOptions(cmd *cobra.Command, cfg *config.Config) (*rootOptions, error) {
+	ro := &rootOptions{}
+
+	ro.profile = cfg.HTTP.Profile
+	if cmd.Flags().Changed("profile") {
+		ro.profile, _ = cmd.Flags().GetString("profile")
+	}
+	ro.proxy = cfg.HTTP.Proxy
+	if cmd.Flags().Changed("proxy") {
+		ro.proxy, _ = cmd.Flags().GetString("proxy")
+	}
+	format := cfg.HTTP.DefaultFormat
+	if cmd.Flags().Changed("format") {
+		format, _ = cmd.Flags().GetString("format")
+	}
+	parsedFormat, err := pipeline.ParseFormat(format)
+	if err != nil {
+		return nil, exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid format")
+	}
+	ro.format = parsedFormat
+	ro.maxChars = cfg.HTTP.MaxChars
+	if cmd.Flags().Changed("max-chars") {
+		ro.maxChars, _ = cmd.Flags().GetInt("max-chars")
+	}
+
+	fo, err := resolveFetchOptions(cmd, cfg)
+	if err != nil {
+		return nil, err
+	}
+	ro.fetchOpts = fo
+
+	ro.timeoutSec = cfg.HTTP.TimeoutSeconds
+	if cmd.Flags().Changed("timeout") {
+		v, _ := cmd.Flags().GetString("timeout")
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid timeout")
+		}
+		ro.timeoutSec = int(d.Seconds())
+	}
+	if ro.timeoutSec > 120 {
+		fmt.Fprintf(os.Stderr, "warning: timeout %ds exceeds MCP server cap of 120s; MCP requests will be capped\n", ro.timeoutSec)
+	}
+
+	headers, _ := cmd.Flags().GetStringArray("header")
+	ro.extraHeaders, err = parseHeaders(headers)
+	if err != nil {
+		return nil, exitcodes.Wrap(err, exitcodes.ExitConfig, exitcodes.KindValidation, "invalid header")
+	}
+
+	noRetry, _ := cmd.Flags().GetBool("no-retry")
+	p := fetch.ParseProfile(ro.profile)
+	ro.client, err = fetch.New(p,
+		fetch.WithProxy(ro.proxy),
+		fetch.WithTimeout(ro.timeoutSec),
+		fetch.WithMaxBody(cfg.HTTP.MaxBodyMB),
+		fetch.WithRetry(!noRetry),
+	)
+	if err != nil {
+		return nil, exitcodes.Wrap(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "init client")
+	}
+
+	data, _ := cmd.Flags().GetString("data")
+	body := []byte(nil)
+	if data != "" {
+		body = []byte(data)
+	}
+	links, _ := cmd.Flags().GetBool("links")
+	session, _ := cmd.Flags().GetString("session")
+	robotsEnabled, _ := cmd.Flags().GetBool("robots")
+	method, _ := cmd.Flags().GetString("request")
+	storeFullText, _ := cmd.Flags().GetBool("store-full-text")
+	charLimit, _ := cmd.Flags().GetInt("char-limit")
+	waybackFB, _ := cmd.Flags().GetBool("wayback-fallback")
+	waybackAt, _ := cmd.Flags().GetString("at")
+	query, _ := cmd.Flags().GetString("query")
+	topK, _ := cmd.Flags().GetInt("top-k")
+	selector, _ := cmd.Flags().GetString("selector")
+	frontmatter, _ := cmd.Flags().GetBool("frontmatter")
+	schemaPath, _ := cmd.Flags().GetString("schema-path")
+	allowPrivateFlag, _ := cmd.Flags().GetBool("allow-private")
+
+	ro.opts = pipeline.Options{
+		Format: ro.format,
+		Content: pipeline.ContentOptions{
+			MaxChars:     ro.maxChars,
+			IncludeLinks: links,
+		},
+		Cache: pipeline.CacheOptions{
+			NoCache: ro.fetchOpts.noCache,
+			Dir:     cfg.Cache.Dir,
+			TTL:     ro.fetchOpts.cacheTTL,
+			MaxSize: int64(cfg.Cache.MaxSizeMB) * 1024 * 1024,
+		},
+		Profile: ro.profile,
+		Session: session,
+		Security: pipeline.SecurityOptions{
+			Robots: robotsEnabled,
+		},
+		Request: pipeline.RequestOptions{
+			Method:  strings.ToUpper(method),
+			Headers: ro.extraHeaders,
+			Body:    body,
+		},
+		StoreFullText:    storeFullText,
+		CharLimit:        charLimit,
+		WaybackFallback:  waybackFB || waybackAt != "",
+		WaybackTimestamp: waybackAt,
+		Query:            query,
+		TopK:             topK,
+		CSSSelector:      selector,
+		Frontmatter:      frontmatter,
+		SchemaPath:       schemaPath,
+	}
+	if robotsEnabled {
+		ro.opts.Security.RobotsChecker = robots.NewChecker()
+	}
+
+	ro.allowPrivate = allowPrivateFlag || cfg.Security.AllowPrivate
+	ro.opts.Security.AllowPrivate = ro.allowPrivate
+
+	return ro, nil
+}
+
+// writeSeparator writes the --- delimiter placed between multi-URL results.
+func writeSeparator(w io.Writer) {
+	fmt.Fprint(w, "\n---\n\n")
+}
+
+func runSequential(ctx context.Context, w io.Writer, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options, frontmatter bool) error {
+	var failCount int
+	for i, rawURL := range urls {
+		if i > 0 {
+			writeSeparator(w)
+		}
+		res, err := pipeline.Run(ctx, client, eng, rawURL, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error fetching %s: %v\n", rawURL, err)
+			failCount++
+			continue
+		}
+		if opts.Format == pipeline.FormatMarkdown {
+			printMarkdownResult(w, res, frontmatter)
+		} else {
+			fmt.Fprint(w, res.Output)
+			if !strings.HasSuffix(res.Output, "\n") {
+				fmt.Fprintln(w)
+			}
+		}
+	}
+	if failCount > 0 {
+		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
+	}
+	return nil
+}
+
+func runRaw(ctx context.Context, w io.Writer, client fetch.Client, urls []string, method string, headers map[string]string, data string, allowPrivate bool) error {
 	var failCount int
 	for _, rawURL := range urls {
 		req := fetch.Request{
@@ -321,7 +383,7 @@ func runRaw(ctx context.Context, client fetch.Client, urls []string, method stri
 			failCount++
 			continue
 		}
-		fmt.Print(string(resp.Body))
+		fmt.Fprint(w, string(resp.Body))
 	}
 	if failCount > 0 {
 		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
@@ -329,7 +391,7 @@ func runRaw(ctx context.Context, client fetch.Client, urls []string, method stri
 	return nil
 }
 
-func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options) error {
+func runMultiJSON(ctx context.Context, w io.Writer, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options) error {
 	type jsonOut struct {
 		URL    string `json:"url"`
 		OK     bool   `json:"ok"`
@@ -351,14 +413,14 @@ func runMultiJSON(ctx context.Context, client fetch.Client, eng pipeline.Engine,
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
+	fmt.Fprintln(w, string(data))
 	if failCount > 0 {
 		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
 	}
 	return nil
 }
 
-func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options, concurrency int) error {
+func runBatch(ctx context.Context, w io.Writer, client fetch.Client, eng pipeline.Engine, urls []string, opts pipeline.Options, concurrency int) error {
 	items := make([]batch.Item, len(urls))
 	for i, u := range urls {
 		items[i] = batch.Item{URL: u}
@@ -371,12 +433,12 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 	var failCount int
 	for i, r := range results {
 		if i > 0 {
-			fmt.Print("\n---\n\n")
+			writeSeparator(w)
 		}
 		if r.OK {
-			fmt.Print(r.Output)
+			fmt.Fprint(w, r.Output)
 			if !strings.HasSuffix(r.Output, "\n") {
-				fmt.Println()
+				fmt.Fprintln(w)
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "error fetching %s: %s\n", r.URL, r.Error)
@@ -389,10 +451,10 @@ func runBatch(ctx context.Context, client fetch.Client, eng pipeline.Engine, url
 	return nil
 }
 
-func printMarkdownResult(res *pipeline.Result, frontmatter bool) {
-	fmt.Print(apicommon.FormatWithMeta(res, pipeline.FormatMarkdown, frontmatter))
+func printMarkdownResult(w io.Writer, res *pipeline.Result, frontmatter bool) {
+	fmt.Fprint(w, apicommon.FormatWithMeta(res, pipeline.FormatMarkdown, frontmatter))
 	if !strings.HasSuffix(res.Output, "\n") {
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 }
 
