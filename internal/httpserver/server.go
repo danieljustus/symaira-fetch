@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/apicommon"
 	"github.com/danieljustus/symaira-fetch/internal/config"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -59,10 +60,11 @@ type fetchRequest struct {
 
 // fetchResponse is the JSON response from POST /fetch.
 type fetchResponse struct {
-	OK      bool          `json:"ok"`
-	Content string        `json:"content,omitempty"`
-	Error   string        `json:"error,omitempty"`
-	Meta    *responseMeta `json:"meta,omitempty"`
+	OK       bool                     `json:"ok"`
+	Content  string                   `json:"content,omitempty"`
+	Error    string                   `json:"error,omitempty"`
+	Meta     *responseMeta            `json:"meta,omitempty"`
+	Escalate *agentdom.EscalationHint `json:"escalate,omitempty"`
 }
 
 // responseMeta is the subset of pipeline metadata returned to the client.
@@ -293,7 +295,7 @@ func (s *Server) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	resp, _ := json.Marshal(fetchResponse{OK: true, Content: content, Meta: meta})
+	resp, _ := json.Marshal(fetchResponse{OK: true, Content: content, Meta: meta, Escalate: res.Meta.Escalate})
 	w.Write(resp)
 }
 

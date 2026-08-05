@@ -664,6 +664,8 @@ func TestMakeWaybackHandler_NonStringForFrom(t *testing.T) {
 
 // ---- makeFetchURLHandler: remaining validation/error branches ----
 
+// ---- makeFetchURLHandler: remaining validation/error branches ----
+
 func TestMakeFetchURLHandler_MalformedFormatType(t *testing.T) {
 	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
 	input, _ := json.Marshal(map[string]interface{}{
@@ -821,6 +823,45 @@ func TestMakeFetchURLHandler_WaybackTimestampEnablesFallback(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestMakeFetchURLHandler_EscalateHint(t *testing.T) {
+	// SPA-skeleton HTML: >2048 bytes, near-empty visible text, hydration island.
+	spaHTML := `<html><head><title>SPA</title></head><body>` +
+		`<div id="app"></div>` +
+		`<script id="__NEXT_DATA__" type="application/json">{"page":"/"}</script>` +
+		strings.Repeat("<!-- padding for the SPA detection threshold -->\n", 60) +
+		`</body></html>`
+
+	client := &mockClient{fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+		return &fetch.Response{
+			FinalURL:   "https://example.com",
+			StatusCode: 200,
+			Body:       []byte(spaHTML),
+		}, nil
+	}}
+	handler := makeFetchURLHandler(client, pipeline.StaticEngine{})
+	// Unique port on a public host per run: the pipeline cache is keyed by
+	// URL (a fixed example.com key could collide with earlier runs), and
+	// CheckSSRF requires a resolvable, non-private hostname.
+	rawURL := fmt.Sprintf("https://example.com:%d", 20000+time.Now().UnixNano()%40000)
+	input, _ := json.Marshal(map[string]interface{}{
+		"url": rawURL,
+	})
+	result, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text, ok := result.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+	if !strings.Contains(text, "symbrowse") {
+		t.Errorf("expected symbrowse escalate hint in fetch_url output, got: %s", text)
+	}
+	if !strings.Contains(text, "spa_skeleton") {
+		t.Errorf("expected spa_skeleton reason in output, got: %s", text)
 	}
 }
 

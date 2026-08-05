@@ -395,6 +395,28 @@ func Run(ctx context.Context, c fetch.Client, eng Engine, rawURL string, o Optio
 		LikelyClientRendered: detectedThin,
 	}
 
+	// Non-blocking escalation hint: when the page is a client-rendered shell
+	// (SPA skeleton, thin content, or JS challenge), suggest symbrowse as the
+	// JS-capable re-fetch tool. This is purely advisory — the result below is
+	// still returned normally and browse is never invoked from here. Only set
+	// on the final result: if a fallback succeeded above we returned early
+	// with the (non-thin) fallback result, so no hint applies there.
+	if spaSkeleton {
+		meta.Escalate = &agentdom.EscalationHint{
+			Tool:    "symbrowse",
+			Reason:  "spa_skeleton",
+			Command: "symbrowse " + rawURL,
+		}
+	} else if detectedThin {
+		// JS-challenge pages surface here too: they render thin/link-heavy
+		// content with no separate detector.
+		meta.Escalate = &agentdom.EscalationHint{
+			Tool:    "symbrowse",
+			Reason:  "thin_content",
+			Command: "symbrowse " + rawURL,
+		}
+	}
+
 	if cacher != nil {
 		profile := o.Profile
 		if profile == "" {

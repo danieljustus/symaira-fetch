@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/httpserver"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
@@ -536,4 +537,80 @@ func isLocalhostTest(addr string) bool {
 		return false
 	}
 	return ip.IsLoopback()
+}
+
+func TestFetchEnvelopeEscalateHint(t *testing.T) {
+	// SPA-skeleton HTML: >2048 bytes, near-empty visible text, hydration island.
+	spaHTML := `<html><head><title>SPA</title></head><body>` +
+		`<div id="app"></div>` +
+		`<script id="__NEXT_DATA__" type="application/json">{"page":"/"}</script>` +
+		strings.Repeat("<!-- padding for the SPA detection threshold -->\n", 60) +
+		`</body></html>`
+
+	client := &mockClient{fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+		return &fetch.Response{
+			FinalURL:   "https://example.com",
+			StatusCode: 200,
+			Protocol:   "https/2",
+			Body:       []byte(spaHTML),
+		}, nil
+	}}
+	srv, mux := newTestServer("", client)
+	_ = srv
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/fetch", "application/json", strings.NewReader(`{"url":"https://example.com"}`))
+	if err != nil {
+		t.Fatalf("fetch request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		OK       bool                     `json:"ok"`
+		Escalate *agentdom.EscalationHint `json:"escalate"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if body.Escalate == nil {
+		t.Fatal("expected escalate field in envelope, got nil")
+	}
+	if body.Escalate.Tool != "symbrowse" {
+		t.Errorf("tool = %q, want symbrowse", body.Escalate.Tool)
+	}
+	if body.Escalate.Reason != "spa_skeleton" {
+		t.Errorf("reason = %q, want spa_skeleton", body.Escalate.Reason)
+	}
+}
+
+func TestFetchEnvelopeNoEscalateForNormalPage(t *testing.T) {
+	client := &mockClient{fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+		return &fetch.Response{
+			FinalURL:   "https://example.com",
+			StatusCode: 200,
+			Body:       []byte(`<html><body><p>Normal content here.</p></body></html>`),
+		}, nil
+	}}
+	srv, mux := newTestServer("", client)
+	_ = srv
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/fetch", "application/json", strings.NewReader(`{"url":"https://example.com"}`))
+	if err != nil {
+		t.Fatalf("fetch request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if _, present := body["escalate"]; present {
+		t.Errorf("expected no escalate field for a normal page, got %v", body["escalate"])
+	}
 }

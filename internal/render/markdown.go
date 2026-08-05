@@ -106,6 +106,10 @@ func collectLinks(elements []agentdom.Element) []linkItem {
 // FormatMarkdownWithMeta prepends a metadata header (title, status, tokens,
 // truncation warning, final URL) to the markdown output. This is the single
 // source of truth for the metadata format used by both CLI and MCP.
+// When meta.Escalate is set (SPA skeleton / thin content / JS challenge),
+// a non-blocking hint line is appended inside the blockquote suggesting the
+// symbrowse command for a JS-rendered re-fetch. Output for results without
+// an escalate hint is byte-identical to previous versions.
 func FormatMarkdownWithMeta(meta agentdom.Meta, output string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("> **%s** · %d · ~%d tokens",
@@ -118,6 +122,12 @@ func FormatMarkdownWithMeta(meta agentdom.Meta, output string) string {
 	}
 	sb.WriteString("\n> ")
 	sb.WriteString(meta.FinalURL)
+	if meta.Escalate != nil {
+		sb.WriteString("\n> ⚠ ")
+		sb.WriteString(meta.Escalate.Reason)
+		sb.WriteString(" — use symbrowse for JS-rendered pages: ")
+		sb.WriteString(meta.Escalate.Command)
+	}
 	sb.WriteString("\n\n")
 	sb.WriteString(output)
 	return sb.String()
