@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,7 @@ import (
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/config"
+	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
 	"github.com/spf13/cobra"
 )
@@ -222,18 +225,8 @@ func TestPrintMarkdownResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Capture stdout
-			old := os.Stdout
-			r, w, _ := os.Pipe()
-			os.Stdout = w
-
-			printMarkdownResult(tt.res, false)
-
-			w.Close()
-			os.Stdout = old
-
 			var buf bytes.Buffer
-			buf.ReadFrom(r)
+			printMarkdownResult(&buf, tt.res, false)
 			output := buf.String()
 
 			for _, s := range tt.contains {
@@ -1364,5 +1357,306 @@ func TestFetch_MalformedHeaderRejected(t *testing.T) {
 	code := exitcodes.ExitCodeFromError(err)
 	if code != exitcodes.ExitConfig {
 		t.Errorf("expected ExitConfig (%d), got %d", exitcodes.ExitConfig, code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NEW: writer-based output runners and option resolution (issue #249)
+// ---------------------------------------------------------------------------
+
+// fakeClient is a hermetic fetch.Client stub for testing output runners.
+// It never touches the network; Fetch returns a canned HTML response unless
+// fetchFunc is set.
+type fakeClient struct {
+	fetchFunc func(ctx context.Context, req fetch.Request) (*fetch.Response, error)
+}
+
+func (f *fakeClient) Fetch(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+	if f.fetchFunc != nil {
+		return f.fetchFunc(ctx, req)
+	}
+	return &fetch.Response{
+		StatusCode: 200,
+		FinalURL:   req.URL,
+		Body:       []byte("<html><head><title>Fake</title></head><body><p>Fake body</p></body></html>"),
+	}, nil
+}
+
+func (f *fakeClient) Close() error { return nil }
+
+// testOpts returns hermetic pipeline options: no cache, no SSRF guard, no
+// thin-content fallback — everything that would touch disk or the network.
+func testOpts(format pipeline.Format) pipeline.Options {
+	return pipeline.Options{
+		Format: format,
+		Content: pipeline.ContentOptions{
+			MaxChars: 20000,
+		},
+		Cache: pipeline.CacheOptions{
+			NoCache: true,
+		},
+		Security: pipeline.SecurityOptions{
+			AllowPrivate: true,
+		},
+		DisableFallback: true,
+	}
+}
+
+func TestRunSequential_Separator(t *testing.T) {
+	bodies := map[string]string{
+		"https://example.com/alpha": "<html><head><title>Fake</title></head><body><p>Alpha</p></body></html>",
+		"https://example.com/beta":  "<html><head><title>Fake</title></head><body><p>Beta</p></body></html>",
+		"https://example.com/gamma": "<html><head><title>Fake</title></head><body><p>Gamma</p></body></html>",
+	}
+	client := &fakeClient{
+		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+			return &fetch.Response{StatusCode: 200, FinalURL: req.URL, Body: []byte(bodies[req.URL])}, nil
+		},
+	}
+
+	tests := []struct {
+		name    string
+		urls    []string
+		wantSep int // expected number of '\n---\n\n' separators
+	}{
+		{"single URL has no separator", []string{"https://example.com/alpha"}, 0},
+		{"two URLs have exactly one separator", []string{"https://example.com/alpha", "https://example.com/beta"}, 1},
+		{"three URLs have exactly two separators", []string{"https://example.com/alpha", "https://example.com/beta", "https://example.com/gamma"}, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := runSequential(context.Background(), &buf, client, pipeline.StaticEngine{}, tt.urls, testOpts(pipeline.FormatText), false)
+			if err != nil {
+				t.Fatalf("runSequential() error = %v", err)
+			}
+			out := buf.String()
+			if got := strings.Count(out, "\n---\n\n"); got != tt.wantSep {
+				t.Errorf("expected %d '\\n---\\n\\n' separator(s), got %d\nOutput: %q", tt.wantSep, got, out)
+			}
+			if tt.wantSep > 0 {
+				if strings.HasPrefix(out, "\n---\n\n") || strings.HasSuffix(out, "\n---\n\n") {
+					t.Errorf("separator must sit between results, not at the edges: %q", out)
+				}
+				idx := strings.Index(out, "\n---\n\n")
+				if !strings.Contains(out[:idx], "Alpha") || !strings.Contains(out[idx:], "Beta") {
+					t.Errorf("expected content before and after separator, got: %q", out)
+				}
+			}
+		})
+	}
+}
+
+func TestRunSequential_Frontmatter(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontmatter bool
+		wantFM      bool // whether a YAML frontmatter block is present
+	}{
+		{"frontmatter prepends YAML block to body", true, true},
+		{"no frontmatter by default", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			opts := testOpts(pipeline.FormatMarkdown)
+			opts.Frontmatter = tt.frontmatter
+			err := runSequential(context.Background(), &buf, &fakeClient{}, pipeline.StaticEngine{}, []string{"https://example.com/page"}, opts, tt.frontmatter)
+			if err != nil {
+				t.Fatalf("runSequential() error = %v", err)
+			}
+			out := buf.String()
+			// FormatWithMeta renders the markdown meta header first, then the
+			// frontmatter block (---\n...---\n\n), then the body.
+			if !strings.HasPrefix(out, "> **Fake**") {
+				t.Errorf("expected meta header first, got: %q", out)
+			}
+			if tt.wantFM {
+				if !strings.Contains(out, "---\ntitle: Fake") {
+					t.Errorf("expected YAML frontmatter block with title, got: %q", out)
+				}
+				if !strings.Contains(out, "\n---\n\nFake body") {
+					t.Errorf("expected frontmatter block right before the body, got: %q", out)
+				}
+			} else if strings.Contains(out, "---\n") {
+				t.Errorf("expected no frontmatter block, got: %q", out)
+			}
+		})
+	}
+}
+
+func TestRunSequential_PartialFailure(t *testing.T) {
+	client := &fakeClient{
+		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+			if strings.Contains(req.URL, "fail") {
+				return nil, fmt.Errorf("connection refused")
+			}
+			return &fetch.Response{StatusCode: 200, FinalURL: req.URL, Body: []byte("<html><head><title>Fake</title></head><body><p>OK</p></body></html>")}, nil
+		},
+	}
+	var buf bytes.Buffer
+	err := runSequential(context.Background(), &buf, client, pipeline.StaticEngine{}, []string{"https://example.com/ok", "https://example.com/fail"}, testOpts(pipeline.FormatText), false)
+	if err == nil {
+		t.Fatal("expected partial failure error")
+	}
+	if code := exitcodes.ExitCodeFromError(err); code != exitcodes.ExitGeneric {
+		t.Errorf("expected ExitGeneric (%d), got %d", exitcodes.ExitGeneric, code)
+	}
+	var cliErr *exitcodes.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected *exitcodes.CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Kind != exitcodes.KindUnavailable {
+		t.Errorf("expected KindUnavailable, got %q", cliErr.Kind)
+	}
+	if !strings.Contains(cliErr.Error(), "1 of 2 URLs failed") {
+		t.Errorf("expected '1 of 2 URLs failed' in error, got: %s", cliErr.Error())
+	}
+}
+
+func TestRunMultiJSON_Output(t *testing.T) {
+	client := &fakeClient{
+		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+			if strings.Contains(req.URL, "fail") {
+				return nil, fmt.Errorf("connection refused")
+			}
+			return &fetch.Response{StatusCode: 200, FinalURL: req.URL, Body: []byte("<html><head><title>Fake</title></head><body><p>Alpha</p></body></html>")}, nil
+		},
+	}
+
+	urls := []string{"https://example.com/ok", "https://example.com/fail"}
+	var buf bytes.Buffer
+	err := runMultiJSON(context.Background(), &buf, client, pipeline.StaticEngine{}, urls, testOpts(pipeline.FormatJSON))
+	if err == nil {
+		t.Fatal("expected partial failure error")
+	}
+	if code := exitcodes.ExitCodeFromError(err); code != exitcodes.ExitGeneric {
+		t.Errorf("expected ExitGeneric (%d), got %d", exitcodes.ExitGeneric, code)
+	}
+	var cliErr *exitcodes.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected *exitcodes.CLIError, got %T: %v", err, err)
+	}
+	if cliErr.Kind != exitcodes.KindUnavailable {
+		t.Errorf("expected KindUnavailable, got %q", cliErr.Kind)
+	}
+	if !strings.Contains(cliErr.Error(), "1 of 2 URLs failed") {
+		t.Errorf("expected '1 of 2 URLs failed' in error, got: %s", cliErr.Error())
+	}
+
+	var results []struct {
+		URL    string `json:"url"`
+		OK     bool   `json:"ok"`
+		Output string `json:"output,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &results); err != nil {
+		t.Fatalf("expected valid JSON array, got error: %v\nOutput: %s", err, buf.String())
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(results))
+	}
+	if results[0].URL != urls[0] || !results[0].OK || !strings.Contains(results[0].Output, "Alpha") || results[0].Error != "" {
+		t.Errorf("unexpected success entry: %+v", results[0])
+	}
+	if results[1].URL != urls[1] || results[1].OK || results[1].Output != "" || results[1].Error == "" {
+		t.Errorf("unexpected failure entry: %+v", results[1])
+	}
+}
+
+func TestResolveRootOptions(t *testing.T) {
+	customCfg := config.Defaults()
+	customCfg.HTTP.Profile = "firefox"
+	customCfg.HTTP.Proxy = "socks5://127.0.0.1:9050"
+	customCfg.HTTP.DefaultFormat = "text"
+	customCfg.HTTP.MaxChars = 5000
+	customCfg.HTTP.TimeoutSeconds = 60
+
+	tests := []struct {
+		name         string
+		args         []string
+		cfg          *config.Config
+		wantProfile  string
+		wantProxy    string
+		wantFormat   pipeline.Format
+		wantMaxChars int
+		wantTimeout  int
+	}{
+		{
+			name:         "unchanged flags use config values",
+			args:         []string{},
+			cfg:          customCfg,
+			wantProfile:  "firefox",
+			wantProxy:    "socks5://127.0.0.1:9050",
+			wantFormat:   pipeline.FormatText,
+			wantMaxChars: 5000,
+			wantTimeout:  60,
+		},
+		{
+			name:         "flags win over config",
+			args:         []string{"--profile", "honest", "--proxy", "http://proxy.local:8080", "--format", "json", "--max-chars", "999", "--timeout", "5s"},
+			cfg:          customCfg,
+			wantProfile:  "honest",
+			wantProxy:    "http://proxy.local:8080",
+			wantFormat:   pipeline.FormatJSON,
+			wantMaxChars: 999,
+			wantTimeout:  5,
+		},
+		{
+			name:         "production defaults when config is default",
+			args:         []string{},
+			cfg:          config.Defaults(),
+			wantProfile:  "chrome",
+			wantProxy:    "",
+			wantFormat:   pipeline.FormatMarkdown,
+			wantMaxChars: 20000,
+			wantTimeout:  30,
+		},
+		{
+			name:         "proxy flag only, rest from config",
+			args:         []string{"--proxy", "http://flag-proxy:3128"},
+			cfg:          customCfg,
+			wantProfile:  "firefox",
+			wantProxy:    "http://flag-proxy:3128",
+			wantFormat:   pipeline.FormatText,
+			wantMaxChars: 5000,
+			wantTimeout:  60,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRootCmd()
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatal(err)
+			}
+
+			ro, err := resolveRootOptions(cmd, tt.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ro.client.Close()
+
+			if ro.profile != tt.wantProfile {
+				t.Errorf("profile = %q, want %q", ro.profile, tt.wantProfile)
+			}
+			if ro.proxy != tt.wantProxy {
+				t.Errorf("proxy = %q, want %q", ro.proxy, tt.wantProxy)
+			}
+			if ro.format != tt.wantFormat {
+				t.Errorf("format = %q, want %q", ro.format, tt.wantFormat)
+			}
+			if ro.maxChars != tt.wantMaxChars {
+				t.Errorf("maxChars = %d, want %d", ro.maxChars, tt.wantMaxChars)
+			}
+			if ro.timeoutSec != tt.wantTimeout {
+				t.Errorf("timeoutSec = %d, want %d", ro.timeoutSec, tt.wantTimeout)
+			}
+			if ro.client == nil {
+				t.Error("expected non-nil client")
+			}
+		})
 	}
 }
