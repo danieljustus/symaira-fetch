@@ -33,15 +33,27 @@ type Document struct {
 	Islands     []DataIsland `json:"islands,omitempty"`
 }
 
+// EscalationHint is a non-blocking hint emitted when the fetched page is
+// likely a client-rendered shell (SPA skeleton, thin content, or a JS
+// challenge page) whose real content a plain HTTP fetch cannot retrieve.
+// Consumers MAY use the suggested tool/command to re-fetch the page with a
+// JS-capable browser; the fetch itself never fails because of this hint.
+type EscalationHint struct {
+	Tool    string `json:"tool"`
+	Reason  string `json:"reason"`
+	Command string `json:"command"`
+}
+
 // Meta holds response metadata returned alongside the rendered output.
 type Meta struct {
-	FinalURL             string `json:"final_url"`
-	StatusCode           int    `json:"status_code"`
-	Title                string `json:"title,omitempty"`
-	Lang                 string `json:"lang,omitempty"`
-	CharCount            int    `json:"char_count"`
-	EstTokens            int    `json:"est_tokens"` // chars / 4
-	Truncated            bool   `json:"truncated"`
-	Protocol             string `json:"protocol,omitempty"`
-	LikelyClientRendered bool   `json:"likely_client_rendered"`
+	FinalURL             string          `json:"final_url"`
+	StatusCode           int             `json:"status_code"`
+	Title                string          `json:"title,omitempty"`
+	Lang                 string          `json:"lang,omitempty"`
+	CharCount            int             `json:"char_count"`
+	EstTokens            int             `json:"est_tokens"` // chars / 4
+	Truncated            bool            `json:"truncated"`
+	Protocol             string          `json:"protocol,omitempty"`
+	LikelyClientRendered bool            `json:"likely_client_rendered"`
+	Escalate             *EscalationHint `json:"escalate,omitempty"`
 }

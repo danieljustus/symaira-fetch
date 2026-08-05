@@ -1129,3 +1129,82 @@ func TestPipeline404SitemapAbsentFallback(t *testing.T) {
 		t.Errorf("expected no candidates when sitemap absent and no matching links, got %d", len(fetchErr.Recovery.Candidates))
 	}
 }
+
+func TestPipelineEscalateHint(t *testing.T) {
+	// spaShellHTML: >2048 bytes of HTML with near-empty visible text plus a
+	// hydration island and an empty framework root -> DetectSPASkeleton true.
+	spaShellHTML := `<html><head><title>SPA</title></head><body>` +
+		`<div id="app"></div>` +
+		`<script id="__NEXT_DATA__" type="application/json">{"page":"/","props":{"pageProps":{}}}</script>` +
+		strings.Repeat("<!-- padding to exceed the 2048-byte SPA threshold -->\n", 60) +
+		`</body></html>`
+
+	// linkHeavyHTML: little text, many links -> thin content via link density.
+	linkHeavyHTML := `<html><head><title>Link Hub</title></head><body>` +
+		`<p>Hi</p>` +
+		strings.Repeat(`<a href="/page">Page</a>`, 60) +
+		`</body></html>`
+
+	serveHTML := func(t *testing.T, body string) string {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(body))
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+
+	run := func(t *testing.T, body string) *pipeline.Result {
+		t.Helper()
+		c := newTestClient(t)
+		res, err := pipeline.Run(context.Background(), c, pipeline.StaticEngine{}, serveHTML(t, body), pipeline.Options{
+			Format: pipeline.FormatMarkdown,
+			Content: pipeline.ContentOptions{
+				MaxChars: 20000,
+			},
+			Security:        pipeline.SecurityOptions{AllowPrivate: true},
+			DisableFallback: true, // isolate the hint logic from fallback retries
+		})
+		if err != nil {
+			t.Fatalf("pipeline.Run failed: %v", err)
+		}
+		return res
+	}
+
+	t.Run("spa skeleton", func(t *testing.T) {
+		res := run(t, spaShellHTML)
+		if res.Meta.Escalate == nil {
+			t.Fatal("expected escalate hint for SPA skeleton page, got nil")
+		}
+		if res.Meta.Escalate.Tool != "symbrowse" {
+			t.Errorf("tool = %q, want symbrowse", res.Meta.Escalate.Tool)
+		}
+		if res.Meta.Escalate.Reason != "spa_skeleton" {
+			t.Errorf("reason = %q, want spa_skeleton", res.Meta.Escalate.Reason)
+		}
+		if !strings.HasPrefix(res.Meta.Escalate.Command, "symbrowse ") {
+			t.Errorf("command = %q, want symbrowse <url> prefix", res.Meta.Escalate.Command)
+		}
+	})
+
+	t.Run("thin content", func(t *testing.T) {
+		res := run(t, linkHeavyHTML)
+		if res.Meta.Escalate == nil {
+			t.Fatal("expected escalate hint for thin-content page, got nil")
+		}
+		if res.Meta.Escalate.Reason != "thin_content" {
+			t.Errorf("reason = %q, want thin_content", res.Meta.Escalate.Reason)
+		}
+	})
+
+	t.Run("normal page", func(t *testing.T) {
+		res := run(t, `<html><head><title>Full</title></head><body>`+
+			strings.Repeat(`<p>Substantial visible text content that keeps the page well above the thin-content threshold and far below any SPA ratio.</p>`, 40)+
+			`</body></html>`)
+		if res.Meta.Escalate != nil {
+			t.Errorf("expected no escalate hint for a normal page, got %+v", res.Meta.Escalate)
+		}
+	})
+}

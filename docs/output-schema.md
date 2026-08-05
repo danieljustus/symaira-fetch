@@ -181,6 +181,36 @@ parsing message text:
 | `truncated` | bool | always | Output was truncated |
 | `protocol` | string | optional | Protocol (e.g. `https/2`) |
 | `likely_client_rendered` | bool | always | SPA-skeleton signal: page is probably a client-rendered shell |
+| `escalate` | object | optional | Non-blocking escalation hint (see §7a) |
+
+### 7a. Escalation hint (additive, introduced with schema version 1)
+
+When the fetched page is likely a client-rendered shell (SPA skeleton, thin
+content, or a JS-challenge page), the result carries an optional, purely
+advisory hint object:
+
+```json
+{
+  "tool": "symbrowse",
+  "reason": "spa_skeleton",
+  "command": "symbrowse https://example.com"
+}
+```
+
+- `tool`: always `symbrowse` (the suggested JS-capable re-fetch tool).
+- `reason`: `spa_skeleton` (structural SPA shell detected) or `thin_content`
+  (thin/link-heavy content; includes JS-challenge pages, which have no
+  separate detector).
+- `command`: a ready-to-run re-fetch command for the original URL.
+
+The hint NEVER causes the fetch to fail and symfetch never invokes the tool
+itself. It is surfaced as:
+- an additional blockquote line in markdown output (CLI and MCP default),
+- the top-level `escalate` field of the HTTP server envelope (sibling of
+  `meta`), mirroring `Meta.escalate`.
+
+The CLI JSON Document output stays contract-pure: the hint is NOT embedded
+in the `Document` object (see §2).
 
 ## 8. Machine-checkable invariants
 
