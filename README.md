@@ -43,6 +43,12 @@ URL ──▶ Browser TLS ──▶ HTML ──▶ DomFilter ──▶ Content S
 - **CGO-free** — cross-compiles to Linux/macOS/Windows amd64+arm64
 - **SSRF guard** — blocks private/loopback addresses in MCP mode
 
+## Status
+
+Early development (pre-1.0): the CLI, MCP server, and HTTP server are functional and released regularly (see [Releases](https://github.com/danieljustus/symaira-fetch/releases)), but breaking changes are possible until v1.0. Pin an exact version when installing.
+
+Roadmap: JavaScript execution (Cloudflare challenge solving) is planned via the pipeline engine interface.
+
 ## Installation
 
 ```bash
