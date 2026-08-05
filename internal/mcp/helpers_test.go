@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-fetch/internal/batch"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
@@ -582,17 +585,42 @@ func TestMakeFetchBatchHandler_StringifiedStoreFullText(t *testing.T) {
 }
 
 func TestMakeWaybackHandler_StringifiedLimit(t *testing.T) {
+	// Serve a minimal valid CDX response from a local server so the handler
+	// never reaches the default web.archive.org endpoint (which has a 30s
+	// client timeout and stalls the test when no CDX server is reachable).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The stringified limit "50" must be coerced to int and propagated
+		// as the CDX limit query parameter.
+		if got := r.URL.Query().Get("limit"); got != "50" {
+			t.Errorf("expected coerced limit=50 in CDX query, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Header row only: a valid CDX response with no snapshots.
+		json.NewEncoder(w).Encode([][]string{
+			{"timestamp", "original", "mimetype", "statuscode", "digest", "length"},
+		})
+	}))
+	defer server.Close()
+
+	oldURL := CdxBaseURL
+	CdxBaseURL = server.URL
+	defer func() { CdxBaseURL = oldURL }()
+
 	handler := makeWaybackSnapshotsHandler()
-	// Pass stringified limit with a URL that won't reach network (empty URL scheme validation fails first)
-	// Use a test that doesn't need the CDX server
+	// Pass stringified limit with a URL that passes scheme validation, so the
+	// request reaches the (mock) CDX client.
 	input, _ := json.Marshal(map[string]interface{}{
 		"url":   "https://example.com",
 		"limit": "50",
 	})
-	_, err := handler(context.Background(), input)
-	// May fail because no CDX server is configured, but should NOT fail with ArgError
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
 	if _, ok := err.(*ArgError); ok {
 		t.Fatalf("unexpected ArgError for stringified limit: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("unexpected error from mock CDX server: %v", err)
 	}
 }
 
@@ -602,7 +630,11 @@ func TestMakeWaybackHandler_MalformedLimit(t *testing.T) {
 		"url":   "https://example.com",
 		"limit": "not-a-number",
 	})
-	_, err := handler(context.Background(), input)
+	// The malformed limit fails argument validation before any CDX request is
+	// made; the timeout only guards against regressions that reach the network.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
 	if err == nil {
 		t.Fatal("expected error for malformed limit")
 	}
@@ -617,7 +649,11 @@ func TestMakeWaybackHandler_NonStringForFrom(t *testing.T) {
 		"url":  "https://example.com",
 		"from": true,
 	})
-	_, err := handler(context.Background(), input)
+	// A non-string "from" fails argument validation before any CDX request is
+	// made; the timeout only guards against regressions that reach the network.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
 	if err == nil {
 		t.Fatal("expected error for boolean passed as from")
 	}

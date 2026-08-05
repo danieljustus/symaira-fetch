@@ -426,6 +426,102 @@ func TestFetch_PrivateIP127Returns400(t *testing.T) {
 	}
 }
 
+// newRecorderTestServer constructs a Server with mock dependencies for
+// direct HandleFetch calls via httptest.NewRecorder (no network).
+func newRecorderTestServer(token string, client fetch.Client) *httpserver.Server {
+	return &httpserver.Server{
+		Addr:   "127.0.0.1:0",
+		Token:  token,
+		Client: client,
+		Engine: pipeline.StaticEngine{},
+	}
+}
+
+// oversizedFetchBody returns a valid JSON body larger than the 1 MiB cap.
+func oversizedFetchBody() string {
+	return `{"url":"https://example.com","format":"markdown","padding":"` + strings.Repeat("A", 1<<20) + `"}`
+}
+
+func TestFetch_OversizedBodyReturns413(t *testing.T) {
+	srv := newRecorderTestServer("", &mockClient{})
+
+	req := httptest.NewRequest(http.MethodPost, "/fetch", strings.NewReader(oversizedFetchBody()))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	srv.HandleFetch(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	var result map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["ok"] != false {
+		t.Error("expected ok:false")
+	}
+	errStr, _ := result["error"].(string)
+	if errStr != "request body too large" {
+		t.Errorf("expected 'request body too large' error, got: %q", errStr)
+	}
+}
+
+func TestFetch_OversizedBodyAuthCheckedFirst(t *testing.T) {
+	srv := newRecorderTestServer("secret-token", &mockClient{})
+
+	req := httptest.NewRequest(http.MethodPost, "/fetch", strings.NewReader(oversizedFetchBody()))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	srv.HandleFetch(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 (auth check before body cap), got %d", rec.Code)
+	}
+}
+
+func TestFetch_ValidBodyReturns200(t *testing.T) {
+	srv := newRecorderTestServer("", &mockClient{})
+
+	req := httptest.NewRequest(http.MethodPost, "/fetch", strings.NewReader(`{"url":"https://example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	srv.HandleFetch(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&result)
+	if result["ok"] != true {
+		t.Errorf("expected ok:true, got: %v", result)
+	}
+}
+
+func TestFetch_InvalidJSONWithinLimitReturns400(t *testing.T) {
+	srv := newRecorderTestServer("", &mockClient{})
+
+	req := httptest.NewRequest(http.MethodPost, "/fetch", strings.NewReader(`{invalid}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	srv.HandleFetch(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+	var result map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&result)
+	if result["ok"] != false {
+		t.Error("expected ok:false")
+	}
+}
+
 // isLocalhostTest mirrors the isLocalhost logic for external test package.
 func isLocalhostTest(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
