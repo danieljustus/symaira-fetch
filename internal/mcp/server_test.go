@@ -16,7 +16,7 @@ import (
 )
 
 func TestStartServerInvalidProxy(t *testing.T) {
-	err := mcp.StartServer(fetch.ProfileHonest, "://invalid")
+	err := mcp.StartServer(fetch.ProfileHonest, "://invalid", 30, 10)
 	if err == nil {
 		t.Fatal("expected error for invalid proxy")
 	}
@@ -185,7 +185,7 @@ func TestStartServerLifecycle(t *testing.T) {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- mcp.StartServer(fetch.ProfileHonest, "")
+		serverErr <- mcp.StartServer(fetch.ProfileHonest, "", 30, 10)
 	}()
 
 	var buf bytes.Buffer

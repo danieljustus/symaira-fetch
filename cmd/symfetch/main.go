@@ -465,16 +465,24 @@ func newMCPCmd() *cobra.Command {
 Use --http to start an HTTP REST server instead (POST /fetch endpoint with bearer auth).`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: config error: %v\n", err)
+				cfg = config.Defaults()
+			}
+
+			profile, proxy, timeoutSec, maxBodyMB := resolveMCPOptions(cmd, cfg)
+
 			if flagHTTP {
 				token := flagToken
 				if token == "" {
 					token = os.Getenv("SYMFETCH_HTTP_TOKEN")
 				}
-				return httpserver.Start(flagAddr, token, flagProfile, flagProxy)
+				return httpserver.Start(flagAddr, token, profile, proxy)
 			}
 			mcp.ServerVersion = version
-			p := fetch.ParseProfile(flagProfile)
-			return mcp.StartServer(p, flagProxy)
+			p := fetch.ParseProfile(profile)
+			return mcp.StartServer(p, proxy, timeoutSec, maxBodyMB)
 		},
 	}
 
@@ -484,6 +492,23 @@ Use --http to start an HTTP REST server instead (POST /fetch endpoint with beare
 	cmd.Flags().StringVar(&flagAddr, "addr", ":8787", "HTTP listen address (host:port)")
 	cmd.Flags().StringVar(&flagToken, "token", "", "Bearer token for HTTP auth (or set SYMFETCH_HTTP_TOKEN)")
 	return cmd
+}
+
+// resolveMCPOptions resolves MCP server options with flags winning over the
+// config file, mirroring the root fetch command. The mcp command has no
+// timeout/max-body flags, so those always come from config.
+func resolveMCPOptions(cmd *cobra.Command, cfg *config.Config) (profile, proxy string, timeoutSec, maxBodyMB int) {
+	profile = cfg.HTTP.Profile
+	if cmd.Flags().Changed("profile") {
+		profile, _ = cmd.Flags().GetString("profile")
+	}
+	proxy = cfg.HTTP.Proxy
+	if cmd.Flags().Changed("proxy") {
+		proxy, _ = cmd.Flags().GetString("proxy")
+	}
+	timeoutSec = cfg.HTTP.TimeoutSeconds
+	maxBodyMB = cfg.HTTP.MaxBodyMB
+	return profile, proxy, timeoutSec, maxBodyMB
 }
 
 func newConfigCmd() *cobra.Command {
