@@ -10,11 +10,10 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - 'LICENSE'
-      - '.github/ISSUE_TEMPLATE/**'
+    # NOTE: no paths-ignore on pull_request — the required status check
+    # "build-and-test" must be reported for every PR, including doc-only
+    # ones, or the protected branch blocks the merge ("Expected — Waiting
+    # for status to be reported").
 
 
 concurrency:
