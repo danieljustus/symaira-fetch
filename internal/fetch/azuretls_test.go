@@ -957,3 +957,52 @@ func TestAzureClient_doFetchWithRetry_PostFetchSSRFBlocked(t *testing.T) {
 		t.Fatal("expected SSRF error from redirect to private URL")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// azuretlsBrowser preset mapping
+// ---------------------------------------------------------------------------
+
+func TestAzuretlsBrowser(t *testing.T) {
+	tests := []struct {
+		name     string
+		profile  Profile
+		expected string
+	}{
+		{"firefox", ProfileFirefox, azuretls.Firefox},
+		{"opera", ProfileOpera, azuretls.Opera},
+		{"safari", ProfileSafari, azuretls.Safari},
+		{"edge", ProfileEdge, azuretls.Edge},
+		{"ios", ProfileIos, azuretls.Ios},
+		{"chrome", ProfileChrome, azuretls.Chrome},
+		// ProfileHonest and ProfileRandom have no dedicated preset and are
+		// expected to fall back to the Chrome preset via the default case.
+		{"honest falls back to chrome", ProfileHonest, azuretls.Chrome},
+		{"random falls back to chrome", ProfileRandom, azuretls.Chrome},
+		{"unknown falls back to chrome", Profile("unknown"), azuretls.Chrome},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := azuretlsBrowser(tt.profile); got != tt.expected {
+				t.Errorf("azuretlsBrowser(%q) = %q, want %q", tt.profile, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNewAzureClient_RandomProfileResolvesToVerifiedPreset(t *testing.T) {
+	c, err := newAzureClient(ProfileRandom, &clientOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if !isVerifiedPreset(c.profile) {
+		t.Errorf("expected resolved profile to be a verified preset, got %q", c.profile)
+	}
+	if c.session == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if want := azuretlsBrowser(c.profile); c.session.Browser != want {
+		t.Errorf("expected session browser %q for resolved profile %q, got %q", want, c.profile, c.session.Browser)
+	}
+}

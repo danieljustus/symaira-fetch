@@ -661,3 +661,354 @@ func TestMakeWaybackHandler_NonStringForFrom(t *testing.T) {
 		t.Errorf("expected field name in error, got: %s", err.Error())
 	}
 }
+
+// ---- makeFetchURLHandler: remaining validation/error branches ----
+
+func TestMakeFetchURLHandler_MalformedFormatType(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":    "https://example.com",
+		"format": true,
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for bool passed as format")
+	}
+	if !strings.Contains(err.Error(), "format") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedFrontmatter(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":         "https://example.com",
+		"frontmatter": "yes",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed frontmatter bool string")
+	}
+	if !strings.Contains(err.Error(), "frontmatter") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedStoreFullText(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":             "https://example.com",
+		"store_full_text": "yes",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed store_full_text bool string")
+	}
+	if !strings.Contains(err.Error(), "store_full_text") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedSchemaPath(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":         "https://example.com",
+		"schema_path": true,
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for bool passed as schema_path")
+	}
+	if !strings.Contains(err.Error(), "schema_path") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedWaybackFallback(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":              "https://example.com",
+		"wayback_fallback": "yes",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed wayback_fallback bool string")
+	}
+	if !strings.Contains(err.Error(), "wayback_fallback") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedWaybackTimestamp(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":               "https://example.com",
+		"wayback_timestamp": 123,
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for number passed as wayback_timestamp")
+	}
+	if !strings.Contains(err.Error(), "wayback_timestamp") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedQuery(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":   "https://example.com",
+		"query": true,
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for bool passed as query")
+	}
+	if !strings.Contains(err.Error(), "query") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedTopK(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":   "https://example.com",
+		"top_k": "abc",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed top_k")
+	}
+	if !strings.Contains(err.Error(), "top_k") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_MalformedCharLimit(t *testing.T) {
+	handler := makeFetchURLHandler(&mockClient{}, pipeline.StaticEngine{})
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":        "https://example.com",
+		"char_limit": "abc",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed char_limit")
+	}
+	if !strings.Contains(err.Error(), "char_limit") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchURLHandler_WaybackTimestampEnablesFallback(t *testing.T) {
+	srv := &mockClient{
+		fetchFunc: func(ctx context.Context, req fetch.Request) (*fetch.Response, error) {
+			return &fetch.Response{
+				StatusCode: 200,
+				Body:       []byte("<html><body><p>" + strings.Repeat("lorem ipsum dolor sit amet ", 200) + "</p></body></html>"),
+			}, nil
+		},
+	}
+	handler := makeFetchURLHandler(srv, pipeline.StaticEngine{})
+	// Unique port on example.com keeps this pipeline run out of the shared
+	// response cache that other tests may have populated for plain example.com.
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":               "https://example.com:53921/",
+		"wayback_timestamp": "20240101120000",
+	})
+	result, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+// ---- makeFetchBatchHandler: remaining validation/error branches ----
+
+func TestMakeFetchBatchHandler_MalformedFormatType(t *testing.T) {
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
+	input, _ := json.Marshal(map[string]interface{}{
+		"urls":   []interface{}{"https://example.com"},
+		"format": true,
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for bool passed as format")
+	}
+	if !strings.Contains(err.Error(), "format") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchBatchHandler_MalformedConcurrency(t *testing.T) {
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
+	input, _ := json.Marshal(map[string]interface{}{
+		"urls":        []interface{}{"https://example.com"},
+		"concurrency": "abc",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed concurrency")
+	}
+	if !strings.Contains(err.Error(), "concurrency") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchBatchHandler_MalformedStoreFullText(t *testing.T) {
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
+	input, _ := json.Marshal(map[string]interface{}{
+		"urls":            []interface{}{"https://example.com"},
+		"store_full_text": "yes",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed store_full_text bool string")
+	}
+	if !strings.Contains(err.Error(), "store_full_text") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeFetchBatchHandler_MalformedCharLimit(t *testing.T) {
+	handler := makeFetchBatchHandler(&mockClient{}, pipeline.StaticEngine{}, batch.NewAdaptivePool(2, 8))
+	input, _ := json.Marshal(map[string]interface{}{
+		"urls":       []interface{}{"https://example.com"},
+		"char_limit": "abc",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for malformed char_limit")
+	}
+	if !strings.Contains(err.Error(), "char_limit") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+// ---- wayback handler: remaining branches ----
+
+func TestMakeWaybackHandler_InvalidJSON(t *testing.T) {
+	handler := makeWaybackSnapshotsHandler()
+	_, err := handler(context.Background(), []byte("{invalid"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+	if !strings.Contains(err.Error(), "invalid input") {
+		t.Errorf("expected 'invalid input' in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeWaybackHandler_MissingURL(t *testing.T) {
+	handler := makeWaybackSnapshotsHandler()
+	input, _ := json.Marshal(map[string]interface{}{
+		"from": "20240101",
+	})
+	_, err := handler(context.Background(), input)
+	if err == nil {
+		t.Fatal("expected error for missing url")
+	}
+	if !strings.Contains(err.Error(), "missing required argument 'url'") {
+		t.Errorf("expected missing url error, got: %s", err.Error())
+	}
+}
+
+func TestMakeWaybackHandler_CoercesFromToMatchType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if got := q.Get("from"); got != "20240101" {
+			t.Errorf("expected from=20240101 in CDX query, got %q", got)
+		}
+		if got := q.Get("to"); got != "20241231" {
+			t.Errorf("expected to=20241231 in CDX query, got %q", got)
+		}
+		if got := q.Get("matchType"); got != "prefix" {
+			t.Errorf("expected matchType=prefix in CDX query, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([][]string{
+			{"timestamp", "original", "mimetype", "statuscode", "digest", "length"},
+		})
+	}))
+	defer server.Close()
+
+	oldURL := CdxBaseURL
+	CdxBaseURL = server.URL
+	defer func() { CdxBaseURL = oldURL }()
+
+	handler := makeWaybackSnapshotsHandler()
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":        "https://example.com",
+		"from":       "20240101",
+		"to":         "20241231",
+		"match_type": "prefix",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := handler(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error from mock CDX server: %v", err)
+	}
+	if !strings.Contains(fmt.Sprintf("%v", result), "No snapshots found") {
+		t.Errorf("expected 'No snapshots found' result, got: %v", result)
+	}
+}
+
+func TestMakeWaybackHandler_NonStringTo(t *testing.T) {
+	handler := makeWaybackSnapshotsHandler()
+	input, _ := json.Marshal(map[string]interface{}{
+		"url": "https://example.com",
+		"to":  true,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
+	if err == nil {
+		t.Fatal("expected error for boolean passed as to")
+	}
+	if !strings.Contains(err.Error(), "to") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeWaybackHandler_NonStringMatchType(t *testing.T) {
+	handler := makeWaybackSnapshotsHandler()
+	input, _ := json.Marshal(map[string]interface{}{
+		"url":        "https://example.com",
+		"match_type": 123,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
+	if err == nil {
+		t.Fatal("expected error for number passed as match_type")
+	}
+	if !strings.Contains(err.Error(), "match_type") {
+		t.Errorf("expected field name in error, got: %s", err.Error())
+	}
+}
+
+func TestMakeWaybackHandler_CDXError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	oldURL := CdxBaseURL
+	CdxBaseURL = server.URL
+	defer func() { CdxBaseURL = oldURL }()
+
+	handler := makeWaybackSnapshotsHandler()
+	input, _ := json.Marshal(map[string]interface{}{
+		"url": "https://example.com",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := handler(ctx, input)
+	if err == nil {
+		t.Fatal("expected error from failing CDX server")
+	}
+	if !strings.Contains(err.Error(), "[wayback]") {
+		t.Errorf("expected '[wayback]' prefix in error, got: %s", err.Error())
+	}
+}
