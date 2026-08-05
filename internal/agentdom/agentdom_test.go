@@ -110,3 +110,72 @@ func TestBuilderTruncatedFlagSet(t *testing.T) {
 		t.Error("expected truncated text to end with ellipsis")
 	}
 }
+
+func TestBuilderCharacterBudgetBoundaries(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxChars int
+		src      string
+		wantText string
+	}{
+		{
+			name:     "unlimited budget",
+			maxChars: 0,
+			src:      `<html><body><p>first</p><p>second</p></body></html>`,
+			wantText: "first",
+		},
+		{
+			name:     "truncated budget stops later siblings",
+			maxChars: 4,
+			src:      `<html><body><p>first</p><p>second</p></body></html>`,
+			wantText: "firs…",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := &agentdom.Document{}
+			agentdom.NewBuilder(tt.maxChars).Build(parseHTML(t, tt.src), doc)
+
+			if len(doc.Content) == 0 || doc.Content[0].Text != tt.wantText {
+				t.Fatalf("expected first element text %q, got %+v", tt.wantText, doc.Content)
+			}
+			if tt.maxChars == 4 && len(doc.Content) != 1 {
+				t.Fatalf("expected later sibling to be skipped after budget exhaustion, got %d elements", len(doc.Content))
+			}
+		})
+	}
+}
+
+func TestBuilderCompressesWhitespaceAndPreservesNestedInteractiveContent(t *testing.T) {
+	src := `<html><body><main>
+  <p>  spaced   text
+ across lines </p>
+  <a href="/next">  Read	more </a>
+</main></body></html>`
+	doc := &agentdom.Document{}
+	agentdom.NewBuilder(1000).Build(parseHTML(t, src), doc)
+
+	if len(doc.Interactive) != 1 {
+		t.Fatalf("expected one interactive element, got %d", len(doc.Interactive))
+	}
+	if got := doc.Interactive[0].Text; got != "Read more" {
+		t.Errorf("interactive text = %q, want %q", got, "Read more")
+	}
+	if len(doc.Content) < 2 {
+		t.Fatalf("expected text and link content, got %d elements", len(doc.Content))
+	}
+}
+
+func TestBuilderLimitsTextExtractionPerElement(t *testing.T) {
+	content := strings.Repeat("x", 2500)
+	doc := &agentdom.Document{}
+	agentdom.NewBuilder(3000).Build(parseHTML(t, "<html><body><p>"+content+"</p></body></html>"), doc)
+
+	if len(doc.Content) != 1 {
+		t.Fatalf("expected one content element, got %d", len(doc.Content))
+	}
+	if got := utf8.RuneCountInString(doc.Content[0].Text); got != 2000 {
+		t.Errorf("extracted %d runes, want per-element limit of 2000", got)
+	}
+}

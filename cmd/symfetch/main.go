@@ -353,10 +353,7 @@ func runSequential(ctx context.Context, w io.Writer, client fetch.Client, eng pi
 		if opts.Format == pipeline.FormatMarkdown {
 			printMarkdownResult(w, res, frontmatter)
 		} else {
-			fmt.Fprint(w, res.Output)
-			if !strings.HasSuffix(res.Output, "\n") {
-				fmt.Fprintln(w)
-			}
+			writeOutput(w, res.Output)
 		}
 	}
 	if failCount > 0 {
@@ -436,10 +433,7 @@ func runBatch(ctx context.Context, w io.Writer, client fetch.Client, eng pipelin
 			writeSeparator(w)
 		}
 		if r.OK {
-			fmt.Fprint(w, r.Output)
-			if !strings.HasSuffix(r.Output, "\n") {
-				fmt.Fprintln(w)
-			}
+			writeOutput(w, r.Output)
 		} else {
 			fmt.Fprintf(os.Stderr, "error fetching %s: %s\n", r.URL, r.Error)
 			failCount++
@@ -449,6 +443,13 @@ func runBatch(ctx context.Context, w io.Writer, client fetch.Client, eng pipelin
 		return exitcodes.Wrap(fmt.Errorf("%d of %d URLs failed", failCount, len(urls)), exitcodes.ExitGeneric, exitcodes.KindUnavailable, "partial failure")
 	}
 	return nil
+}
+
+func writeOutput(w io.Writer, output string) {
+	fmt.Fprint(w, output)
+	if !strings.HasSuffix(output, "\n") {
+		fmt.Fprintln(w)
+	}
 }
 
 func printMarkdownResult(w io.Writer, res *pipeline.Result, frontmatter bool) {
