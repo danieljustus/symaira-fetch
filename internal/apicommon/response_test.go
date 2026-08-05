@@ -293,3 +293,55 @@ func TestValidateURLScheme_ParseError(t *testing.T) {
 		t.Errorf("expected 'invalid URL' in error, got: %s", err.Error())
 	}
 }
+
+func TestFormatWithMeta_EscalateHint(t *testing.T) {
+	hint := &agentdom.EscalationHint{
+		Tool:    "symbrowse",
+		Reason:  "spa_skeleton",
+		Command: "symbrowse https://example.com",
+	}
+	res := &pipeline.Result{
+		Output: "page content",
+		Meta:   agentdom.Meta{FinalURL: "https://example.com", StatusCode: 200, EstTokens: 5, Escalate: hint},
+	}
+
+	out := FormatWithMeta(res, pipeline.FormatMarkdown, false)
+	if !strings.Contains(out, "symbrowse") {
+		t.Errorf("expected symbrowse hint in markdown output, got: %s", out)
+	}
+	if !strings.Contains(out, "spa_skeleton") {
+		t.Errorf("expected reason in markdown output, got: %s", out)
+	}
+	if !strings.Contains(out, "https://example.com") {
+		t.Errorf("expected command URL in markdown output, got: %s", out)
+	}
+
+	// Without a hint the output must stay unchanged.
+	plain := &pipeline.Result{
+		Output: "page content",
+		Meta:   agentdom.Meta{FinalURL: "https://example.com", StatusCode: 200, EstTokens: 5},
+	}
+	before := FormatWithMeta(plain, pipeline.FormatMarkdown, false)
+	if strings.Contains(before, "symbrowse") {
+		t.Errorf("unexpected symbrowse in plain output: %s", before)
+	}
+	if !strings.Contains(before, "page content") {
+		t.Errorf("plain output lost content: %s", before)
+	}
+}
+
+func TestFormatWithMeta_JSONIgnoresEscalate(t *testing.T) {
+	res := &pipeline.Result{
+		Output: `{"url":"https://example.com"}`,
+		Meta: agentdom.Meta{
+			Escalate: &agentdom.EscalationHint{Tool: "symbrowse", Reason: "thin_content", Command: "symbrowse https://example.com"},
+		},
+	}
+	out := FormatWithMeta(res, pipeline.FormatJSON, false)
+	if strings.Contains(out, "symbrowse") {
+		t.Errorf("JSON output must stay Document-pure (contract), got escalate leak: %s", out)
+	}
+	if out != res.Output {
+		t.Errorf("JSON output changed: %s", out)
+	}
+}

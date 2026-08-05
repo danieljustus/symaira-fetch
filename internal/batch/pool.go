@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/danieljustus/symaira-fetch/internal/agentdom"
 	"github.com/danieljustus/symaira-fetch/internal/cache"
 	"github.com/danieljustus/symaira-fetch/internal/fetch"
 	"github.com/danieljustus/symaira-fetch/internal/pipeline"
@@ -23,10 +24,11 @@ type Item struct {
 
 // Result is the outcome for one URL in a batch.
 type Result struct {
-	URL    string
-	OK     bool
-	Output string
-	Error  string
+	URL      string
+	OK       bool
+	Output   string
+	Error    string
+	Escalate *agentdom.EscalationHint
 }
 
 // Pool runs batch fetch+pipeline jobs with global and per-host concurrency limits.
@@ -111,7 +113,7 @@ func (p Pool) RunBatch(ctx context.Context, c fetch.Client, eng pipeline.Engine,
 			if err != nil {
 				results[i] = Result{URL: item.URL, OK: false, Error: err.Error()}
 			} else {
-				results[i] = Result{URL: item.URL, OK: true, Output: res.Output}
+				results[i] = Result{URL: item.URL, OK: true, Output: res.Output, Escalate: res.Meta.Escalate}
 			}
 			return nil
 		})
