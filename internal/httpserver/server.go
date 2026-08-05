@@ -27,6 +27,7 @@ import (
 const (
 	maxTimeoutSec = 120
 	maxCharsLimit = 500_000
+	maxBodyBytes  = 1 << 20 // 1 MiB cap on the POST /fetch request body
 )
 
 // Server holds configuration for the HTTP server.
@@ -161,8 +162,15 @@ func (s *Server) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req fetchRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			fmt.Fprint(w, `{"ok":false,"error":"request body too large"}`)
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, `{"ok":false,"error":"invalid JSON body"}`)
 		return
